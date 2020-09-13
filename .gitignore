@@ -112,6 +112,7 @@ cscope.out
 .dir-locals.el
 *.swp
 gmon.out
+.idea
 
 # 7. Open Ephys data files
 *.continuous

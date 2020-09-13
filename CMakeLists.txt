@@ -13,8 +13,14 @@ endforeach()
 string(REPLACE "." "," GUI_VERSION_COMMA ${GUI_VERSION})
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "Minimum OS X deployment version")
-set(CMAKE_OSX_SYSROOT "")
-if ((NOT ${CMAKE_CURRENT_BINARY_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR}/Build ) AND (NOT OE_DONT_CHECK_BUILD_PATH))
+if (CMAKE_GENERATOR STREQUAL "Xcode")
+  # if CMAKE_OSX_SYSROOT is blank or not given and the generator is Xcode, CMake will
+  # automatically look for the most up-to-date SDKs directory. This isn't necessarily what
+  # you want if you're using non-Xcode targets on OSX (e.g. generating Unix Makefiles, instead).
+  set(CMAKE_OSX_SYSROOT "")
+endif()
+
+if ((NOT ${CMAKE_CURRENT_BINARY_DIR} MATCHES "${CMAKE_CURRENT_SOURCE_DIR}/Build.*" ) AND (NOT OE_DONT_CHECK_BUILD_PATH))
 message(FATAL_ERROR "Please run cmake inside the Build folder to build the binaries in the predefined paths.\nSet the OE_DONT_CHECK_BUILD_PATH cmake variable to TRUE to disable this error")
 endif()
 
