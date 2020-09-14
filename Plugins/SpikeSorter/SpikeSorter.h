@@ -32,6 +32,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <memory>
+#include <vector>
+#include "tcrosser.h"
 
 class SpikeSorterEditor;
 class SpikeHistogramPlot;
@@ -145,10 +148,20 @@ private:
     double m_oldM, m_newM, m_oldS, m_newS;
 };
 
-class Electrode
-{
+class Electrode {
 public:
-    Electrode(int electrodeID, UniqueIDgenerator* uniqueIDgenerator_, PCAcomputingThread* pth,String _name, int _numChannels, int* _channels, float default_threshold, int pre, int post, float samplingRate , int sourceNodeId, int sourceSubIdx);
+    Electrode(int electrodeID,
+              UniqueIDgenerator *uniqueIDgenerator_,
+              PCAcomputingThread *pth,
+              String _name,
+              int _numChannels,
+              int *_channels,
+              float default_threshold,
+              int pre,
+              int post,
+              float samplingRate,
+              int sourceNodeId,
+              int sourceSubIdx);
     ~Electrode();
 
     void resizeWaveform(int numPre, int numPost);
@@ -157,7 +170,6 @@ public:
 
     int numChannels;
     int prePeakSamples, postPeakSamples;
-    int lastBufferIndex;
 
     int advancerID;
     float depthOffsetMM;
@@ -165,10 +177,10 @@ public:
     int electrodeID;
     int sourceNodeId_;
 	int sourceSubIdx;
-    int* channels;
-    double* thresholds;
-    bool* isActive;
     double* voltageScale;
+
+    std::unique_ptr<tcrosser::ThresholdCrossingCalculator<float>> crossing_calculator;
+
     //float PCArange[4];
 
     RunningStat* runningStats;
@@ -179,6 +191,20 @@ public:
 
 	ScopedPointer<SpikeSortBoxes> spikeSort;
     bool isMonitored;
+
+    int get_channel(int channel_index);
+    void set_channel(int channel_index, int new_channel);
+
+    bool is_active(int channel_index);
+    void set_is_active(int channel_index, bool is_active);
+
+    double get_threshold(int channel_index);
+    void set_threshold(int channel_index, double threshold);
+private:
+    double* thresholds_;
+    bool* isActive_;
+    int* channels_;
+    void recreate_threshold_crossing_calculator();
 };
 
 class ContinuousCircularBuffer
@@ -222,7 +248,7 @@ public:
     SpikeSorter();
 
     /** destructor */
-    ~SpikeSorter();
+    ~SpikeSorter() override = default;
 
 
     // PROCESSOR METHODS //
@@ -254,12 +280,6 @@ public:
     //void addNetworkEventToQueue(StringTS S);
 
     void postEventsInQueue(MidiBuffer& events);
-
-    // INTERNAL BUFFERS //
-
-    /** Extra samples are placed in this buffer to allow seamless
-        transitions between callbacks. */
-    AudioSampleBuffer overflowBuffer;
 
 
     // CREATE AND DELETE ELECTRODES //
@@ -311,8 +331,8 @@ public:
     void removeUnit(int electrodeID, int newUnitID);
 
     /** saves all electrodes, thresholds, units, etc to xml */
-    void saveCustomParametersToXml(XmlElement* parentElement);
-    void loadCustomParametersFromXml();
+    void saveCustomParametersToXml(XmlElement* parentElement) override;
+    void loadCustomParametersFromXml() override;
 
     /** returns the depth of an electrode. The depth is calculated as the
     known depth of the advancer that is used to control that electrode, plus
@@ -353,7 +373,7 @@ public:
     void setThresholdSyncStatus(bool status);
     bool getFlipSignalState();
     void setFlipSignalState(bool state);
-    void startRecording();
+    void startRecording() override;
     std::vector<float> getElectrodeVoltageScales(int electrodeID);
     //void getElectrodePCArange(int electrodeID, float &minX,float &maxX,float &minY,float &maxY);
     //void setElectrodePCArange(int electrodeID, float minX,float maxX,float minY,float maxY);
@@ -397,35 +417,20 @@ private:
 
     float ticksPerSec;
     int uniqueID;
-    //std::queue<StringTS> eventQueue;
-    /** pointer to a continuous buffer. */
-    AudioSampleBuffer* dataBuffer;
 
     float getDefaultThreshold();
 
-    int overflowBufferSize;
-
-    int sampleIndex;
-
     std::vector<int> electrodeCounter;
-    float getNextSample(int& chan);
-    float getCurrentSample(int& chan);
-    bool samplesAvailable(int nSamples);
-
-    Array<bool> useOverflowBuffer;
 
     int currentElectrode;
     int currentChannelIndex;
     int currentIndex;
 
-
     int numPreSamples,numPostSamples;
 
 
     bool PCAbeforeBoxes;
-    ContinuousCircularBuffer* channelBuffers; // used to compute auto threshold
 
-    void resetElectrode(Electrode*);
     CriticalSection mut;
     bool autoDACassignment;
     bool syncThresholds;
@@ -436,10 +441,10 @@ private:
 
     Time timer;
 
-    void addWaveformToSpikeObject(SpikeEvent::SpikeBuffer& s,
-                                  int& peakIndex,
-                                  int& electrodeNumber,
-                                  int& currentChannel);
+    void addWaveformToSpikeObject(SpikeEvent::SpikeBuffer &s,
+                                  int &electrodeNumber,
+                                  int &currentChannel,
+                                  const tcrosser::ThresholdCrossing<float> &crossing);
 
 
     OwnedArray<Electrode> electrodes;

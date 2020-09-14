@@ -499,7 +499,7 @@ void SpikeSorterEditor::buttonEvent(Button* button)
 
         for (int i = 0; i < e->numChannels; i++)
         {
-            int channelNum = e->channels[i];
+            int channelNum = e->get_channel(i);
             channelSelector->setAudioStatus(channelNum, audioMonitorButton->getToggleState());
 
         }
@@ -607,8 +607,8 @@ void SpikeSorterEditor::refreshElectrodeList(int selected)
 
         if (processor->getAutoDacAssignmentStatus())
         {
-            processor->assignDACtoChannel(0, e->channels[0]);
-            processor->assignDACtoChannel(1, e->channels[0]);
+            processor->assignDACtoChannel(0, e->get_channel(0));
+            processor->assignDACtoChannel(1, e->get_channel(0));
         }
      /*   Array<int> dacAssignmentToChannels = processor->getDACassignments();
         // search for channel[0]. If found, set the combo box accordingly...
@@ -746,8 +746,8 @@ void SpikeSorterEditor::comboBoxChanged(ComboBox* comboBox)
 
             if (processor->getAutoDacAssignmentStatus())
             {
-                processor->assignDACtoChannel(0, e->channels[0]);
-                processor->assignDACtoChannel(1, e->channels[0]);
+                processor->assignDACtoChannel(0, e->get_channel(0));
+                processor->assignDACtoChannel(1, e->get_channel(0));
             }
          /*   Array<int> dacAssignmentToChannels = processor->getDACassignments();
             // search for channel[0]. If found, set the combo box accordingly...

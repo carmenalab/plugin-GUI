@@ -30,8 +30,7 @@ class spikeSorter;
 
 SpikeSorter::SpikeSorter()
     : GenericProcessor("Spike Sorter"),
-      overflowBuffer(2,100), dataBuffer(nullptr),
-      overflowBufferSize(100), currentElectrode(-1),
+      currentElectrode(-1),
       numPreSamples(8),numPostSamples(32)
 {
     setProcessorType (PROCESSOR_TYPE_FILTER);
@@ -42,7 +41,6 @@ SpikeSorter::SpikeSorter()
     ticksPerSec = (float) timer.getHighResolutionTicksPerSecond();
     electrodeTypes.clear();
     electrodeCounter.clear();
-    channelBuffers=nullptr;
     PCAbeforeBoxes = true;
     autoDACassignment = false;
     syncThresholds = false;
@@ -156,17 +154,6 @@ void SpikeSorter::increaseUniqueProbeID(String type)
     }
 }
 
-
-
-SpikeSorter::~SpikeSorter()
-{
-    if (channelBuffers != nullptr)
-        delete channelBuffers;
-
-}
-
-
-
 AudioProcessorEditor* SpikeSorter::createEditor()
 {
     editor = new SpikeSorterEditor(this, true);
@@ -180,18 +167,9 @@ void SpikeSorter::updateSettings()
     mut.enter();
 	sorterReady = false;
     int numChannels = getNumInputs();
-	if (numChannels > 0)
-	{
-		overflowBuffer.setSize(getNumInputs(), overflowBufferSize);
-		overflowBuffer.clear();
-	}
-
-    if (channelBuffers != nullptr)
-        delete channelBuffers;
 
     double SamplingRate = getSampleRate();;
     double ContinuousBufferLengthSec = 5;
-    channelBuffers = new ContinuousCircularBuffer(numChannels,SamplingRate,1, ContinuousBufferLengthSec);
 
 
     for (int i = 0; i < electrodes.size(); i++)
@@ -202,7 +180,7 @@ void SpikeSorter::updateSettings()
 		for (int c = 0; c < nChans; c++)
 		{
 
-			const DataChannel* ch = getDataChannel(elec->channels[c]);
+			const DataChannel* ch = getDataChannel(elec->get_channel(c));
 			if (!ch)
 			{
 				//not enough channels for the electrodes
@@ -225,10 +203,10 @@ void SpikeSorter::updateSettings()
 
 Electrode::~Electrode()
 {
-    delete[] thresholds;
-    delete[] isActive;
+    delete[] thresholds_;
+    delete[] isActive_;
     delete[] voltageScale;
-    delete[] channels;
+    delete[] channels_;
     delete[] runningStats;
 }
 
@@ -245,9 +223,9 @@ Electrode::Electrode(int ID, UniqueIDgenerator* uniqueIDgenerator_, PCAcomputing
     prePeakSamples = pre;
     postPeakSamples = post;
 
-    thresholds = new double[numChannels];
-    isActive = new bool[numChannels];
-    channels = new int[numChannels];
+    thresholds_ = new double[numChannels];
+    isActive_ = new bool[numChannels];
+    channels_ = new int[numChannels];
     voltageScale = new double[numChannels];
     runningStats = new RunningStat[numChannels];
     depthOffsetMM = 0.0;
@@ -256,11 +234,14 @@ Electrode::Electrode(int ID, UniqueIDgenerator* uniqueIDgenerator_, PCAcomputing
 
     for (int i = 0; i < numChannels; i++)
     {
-        channels[i] = _channels[i];
-        thresholds[i] = default_threshold;
-        isActive[i] = true;
+        channels_[i] = _channels[i];
+        thresholds_[i] = default_threshold;
+        isActive_[i] = true;
         voltageScale[i] = 500;
     }
+
+    recreate_threshold_crossing_calculator();
+
     spikePlot = nullptr;
 
     if (computingThread != nullptr)
@@ -269,6 +250,26 @@ Electrode::Electrode(int ID, UniqueIDgenerator* uniqueIDgenerator_, PCAcomputing
         spikeSort = nullptr;
 
     isMonitored = false;
+}
+
+void Electrode::recreate_threshold_crossing_calculator() {
+    std::vector<std::shared_ptr<tcrosser::Thresholder<float>>> thresholders;
+
+    for (int i = 0; i < numChannels; i++) {
+        if (isActive_[i]) {
+            thresholders.push_back(std::make_shared<tcrosser::StaticThresholder<float>>(
+                    thresholds_[i],
+                    channels_[i],
+                    postPeakSamples));
+        }
+    }
+
+    crossing_calculator = std::make_unique<tcrosser::ThresholdCrossingCalculator<float>>(
+            thresholders,
+            prePeakSamples,
+            postPeakSamples,
+            postPeakSamples - 1,
+            tcrosser::AlignmentDirection::GLOBAL_MINIMA);
 }
 
 void Electrode::resizeWaveform(int numPre, int numPost)
@@ -280,7 +281,39 @@ void Electrode::resizeWaveform(int numPre, int numPost)
 
     //spikePlot = nullptr;
     spikeSort->resizeWaveform(prePeakSamples+postPeakSamples);
+}
 
+int Electrode::get_channel(int channel_index) {
+    return channels_[channel_index];
+}
+
+void Electrode::set_channel(int channel_index, int new_channel) {
+    int old_channel = channels_[channel_index];
+    channels_[channel_index] = new_channel;
+    if (old_channel != new_channel) {
+        recreate_threshold_crossing_calculator();
+    }
+}
+
+bool Electrode::is_active(int channel_index) {
+    return isActive_[channel_index];
+}
+
+void Electrode::set_is_active(int channel_index, bool is_active) {
+    int old_is_active = isActive_[channel_index];
+    isActive_[channel_index] = is_active;
+    if (old_is_active != is_active) {
+        recreate_threshold_crossing_calculator();
+    }
+}
+
+double Electrode::get_threshold(int channel_index) {
+    return thresholds_[channel_index];
+}
+
+void Electrode::set_threshold(int channel_index, double threshold) {
+    thresholds_[channel_index] = threshold;
+    crossing_calculator->thresholder(get_channel(channel_index))->set_threshold(threshold);
 }
 
 void SpikeSorter::setElectrodeVoltageScale(int electrodeID, int index, float newvalue)
@@ -426,7 +459,6 @@ void SpikeSorter::assignDACtoChannel(int dacOutput, int channel)
 void SpikeSorter::addElectrode(Electrode* newElectrode)
 {
     mut.enter();
-    resetElectrode(newElectrode);
     electrodes.add(newElectrode);
     // inform PSTH sink, if it exists, about this new electrode.
 //    updateSinks(newElectrode);
@@ -446,7 +478,7 @@ bool SpikeSorter::addElectrode(int nChans, String name, double Depth)
     else
     {
         Electrode* e = electrodes.getLast();
-        firstChan = *(e->channels + (e->numChannels - 1)) + 1;
+        firstChan = e->get_channel(e->numChannels - 1) + 1;
     }
 
     if (firstChan + nChans > getNumInputs())
@@ -459,15 +491,25 @@ bool SpikeSorter::addElectrode(int nChans, String name, double Depth)
     for (int k = 0; k < nChans; k++)
         chans[k] = firstChan + k;
 
-    Electrode* newElectrode = new Electrode(++uniqueID, &uniqueIDgenerator, &computingThread, name, nChans, chans, getDefaultThreshold(),
-		numPreSamples, numPostSamples, getSampleRate(), dataChannelArray[chans[0]]->getSourceNodeID(), dataChannelArray[chans[0]]->getSubProcessorIdx());
+    Electrode *newElectrode = new Electrode(++uniqueID,
+                                            &uniqueIDgenerator,
+                                            &computingThread,
+                                            name,
+                                            nChans,
+                                            chans,
+                                            getDefaultThreshold(),
+                                            numPreSamples,
+                                            numPostSamples,
+                                            getSampleRate(),
+                                            dataChannelArray[chans[0]]->getSourceNodeID(),
+                                            dataChannelArray[chans[0]]->getSubProcessorIdx());
 
     newElectrode->depthOffsetMM = Depth;
     String log = "Added electrode (ID "+ String(uniqueID)+") with " + String(nChans) + " channels." ;
     std::cout << log << std::endl;
     for (int i = 0; i < nChans; i++)
     {
-        std::cout << "  Channel " << i << " = " << newElectrode->channels[i] << std::endl;
+        std::cout << "  Channel " << i << " = " << newElectrode->get_channel(i) << std::endl;
     }
     String eventlog = "NewElectrode "+ String(uniqueID) + " " + String(nChans) + " ";
     for (int k = 0; k < nChans; k++)
@@ -476,7 +518,6 @@ bool SpikeSorter::addElectrode(int nChans, String name, double Depth)
     //addNetworkEventToQueue(StringTS(eventlog));
     delete[] chans;
 
-    resetElectrode(newElectrode);
     electrodes.add(newElectrode);
  //   updateSinks(newElectrode);
     setCurrentElectrodeIndex(electrodes.size()-1);
@@ -500,11 +541,6 @@ StringArray SpikeSorter::getElectrodeNames()
     }
     mut.exit();
     return names;
-}
-
-void SpikeSorter::resetElectrode(Electrode* e)
-{
-    e->lastBufferIndex = 0;
 }
 
 bool SpikeSorter::removeElectrode(int index)
@@ -558,13 +594,14 @@ void SpikeSorter::setChannel(int electrodeIndex, int channelNum, int newChannel)
     std::cout << log<< std::endl;
 
 
-
-    String eventlog = "ChanelElectrodeChannel " + String(electrodes[electrodeIndex]->electrodeID) + " " + String(channelNum) + " " + String(newChannel);
+    Electrode *electrode = electrodes[electrodeIndex];
+    String eventlog = "ChanelElectrodeChannel " + String(electrode->electrodeID) + " " + String(channelNum) + " " + String(newChannel);
     //addNetworkEventToQueue(StringTS(eventlog));
 
    // updateSinks(electrodes[electrodeIndex]->electrodeID, channelNum,newChannel);
 
-    *(electrodes[electrodeIndex]->channels+channelNum) = newChannel;
+    electrode->set_channel(channelNum, newChannel);
+
     mut.exit();
 }
 
@@ -579,7 +616,7 @@ int SpikeSorter::getNumChannels(int index)
 int SpikeSorter::getChannel(int index, int i)
 {
     mut.enter();
-    int ii=*(electrodes[index]->channels+i);
+    int ii = electrodes[index]->get_channel(i);
     mut.exit();
     return ii;
 }
@@ -602,7 +639,7 @@ void SpikeSorter::setChannelActive(int electrodeIndex, int subChannel, bool acti
 bool SpikeSorter::isChannelActive(int electrodeIndex, int i)
 {
     mut.enter();
-    bool b= *(electrodes[electrodeIndex]->isActive+i);
+    bool b= electrodes[electrodeIndex]->is_active(i);
     mut.exit();
     return b;
 }
@@ -611,19 +648,23 @@ bool SpikeSorter::isChannelActive(int electrodeIndex, int i)
 void SpikeSorter::setChannelThreshold(int electrodeNum, int channelNum, float thresh)
 {
     mut.enter();
+
     currentElectrode = electrodeNum;
     currentChannelIndex = channelNum;
-    electrodes[electrodeNum]->thresholds[channelNum] = thresh;
-    if (electrodes[electrodeNum]->spikePlot != nullptr)
-        electrodes[electrodeNum]->spikePlot->setDisplayThresholdForChannel(channelNum,thresh);
+
+    Electrode *electrode = electrodes[electrodeNum];
+    electrode->set_threshold(channelNum, thresh);
+    if (electrode->spikePlot != nullptr)
+        electrode->spikePlot->setDisplayThresholdForChannel(channelNum, thresh);
 
     if (syncThresholds)
     {
         for (int k=0; k<electrodes.size(); k++)
         {
-            for (int i=0; i<electrodes[k]->numChannels; i++)
+            Electrode *electrode2 = electrodes[k];
+            for (int i=0; i < electrode2->numChannels; i++)
             {
-                electrodes[k]->thresholds[i] = thresh;
+                electrode2->set_threshold(i, thresh);
             }
         }
     }
@@ -635,7 +676,8 @@ void SpikeSorter::setChannelThreshold(int electrodeNum, int channelNum, float th
 double SpikeSorter::getChannelThreshold(int electrodeNum, int channelNum)
 {
     mut.enter();
-    double f= *(electrodes[electrodeNum]->thresholds+channelNum);
+    Electrode *electrode = electrodes[electrodeNum];
+    double f = electrode->get_threshold(channelNum);
     mut.exit();
     return f;
 }
@@ -646,14 +688,18 @@ void SpikeSorter::setParameter(int parameterIndex, float newValue)
     mut.enter();
     if (parameterIndex == 99 && currentElectrode > -1)
     {
-        *(electrodes[currentElectrode]->thresholds+currentChannelIndex) = newValue;
+        Electrode *electrode = electrodes[currentElectrode];
+        electrode->set_threshold(currentChannelIndex, newValue);
     }
     else if (parameterIndex == 98 && currentElectrode > -1)
     {
-        if (newValue == 0.0f)
-            *(electrodes[currentElectrode]->isActive+currentChannelIndex) = false;
-        else
-            *(electrodes[currentElectrode]->isActive+currentChannelIndex) = true;
+        Electrode *electrode = electrodes[currentElectrode];
+        if (newValue == 0.0f) {
+            electrode->set_is_active(currentChannelIndex, false);
+        }
+        else {
+            electrode->set_is_active(currentChannelIndex, true);
+        }
     }
     mut.exit();
 }
@@ -662,17 +708,12 @@ void SpikeSorter::setParameter(int parameterIndex, float newValue)
 bool SpikeSorter::enable()
 {
 
-    useOverflowBuffer.clear();
 	if (!sorterReady)
 	{
 		CoreServices::sendStatusMessage("Not enough channels for the configured electrodes");
 		std::cout << "SpikeSorter: Not enough channels for the configured electrodes" << std::endl;
 		return false;
 	}
-
-    for (int i = 0; i < electrodes.size(); i++)
-        useOverflowBuffer.add(false);
-
 
     SpikeSorterEditor* editor = (SpikeSorterEditor*) getEditor();
     editor->enable();
@@ -690,10 +731,6 @@ bool SpikeSorter::isReady()
 bool SpikeSorter::disable()
 {
     mut.enter();
-    for (int n = 0; n < electrodes.size(); n++)
-    {
-        resetElectrode(electrodes[n]);
-    }
     //editor->disable();
     mut.exit();
     return true;
@@ -708,43 +745,24 @@ Electrode* SpikeSorter::getActiveElectrode()
 }
 
 
-void SpikeSorter::addWaveformToSpikeObject(SpikeEvent::SpikeBuffer& s,
-                                           int& peakIndex,
-                                           int& electrodeNumber,
-                                           int& currentChannel)
-{
+void SpikeSorter::addWaveformToSpikeObject(SpikeEvent::SpikeBuffer &s, int &electrodeNumber, int &currentChannel,
+                                           const tcrosser::ThresholdCrossing<float>& crossing) {
     mut.enter();
-	int spikeLength = electrodes[electrodeNumber]->prePeakSamples
-		+ electrodes[electrodeNumber]->postPeakSamples;
-
-	const int chan = *(electrodes[electrodeNumber]->channels + currentChannel);
-
 
 	if (isChannelActive(electrodeNumber, currentChannel))
 	{
-
-		for (int sample = 0; sample < spikeLength; ++sample)
-		{
-			s.set(currentChannel, sample, getNextSample(*(electrodes[electrodeNumber]->channels + currentChannel)));
-			++sampleIndex;
-
-			//std::cout << currentIndex << std::endl;
-		}
+	    s.set(currentChannel, &crossing.waveform.front(), crossing.waveform.size());
 	}
 	else
 	{
-		for (int sample = 0; sample < spikeLength; ++sample)
+		for (int sample = 0; sample < crossing.waveform.size(); ++sample)
 		{
-			// insert a blank spike if the
+			// insert a blank spike if the channel is not active
 			s.set(currentChannel, sample, 0);
-			++sampleIndex;
-			//std::cout << currentIndex << std::endl;
 		}
 	}
 
-	sampleIndex -= spikeLength; // reset sample index
     mut.exit();
-
 }
 
 void SpikeSorter::startRecording()
@@ -757,7 +775,7 @@ void SpikeSorter::startRecording()
                           String(electrodes[k]->numChannels) + " ";
         for (int i=0; i<electrodes[k]->numChannels; i++)
         {
-            eventlog += String(electrodes[k]->channels[i])+ " " + electrodes[k]->name;
+            eventlog += String(electrodes[k]->get_channel(i)) + " " + electrodes[k]->name;
         }
         //addNetworkEventToQueue(StringTS(eventlog));
 
@@ -852,263 +870,81 @@ void SpikeSorter::clearRunningStatForSelectedElectrode()
 void SpikeSorter::process(AudioSampleBuffer& buffer)
 {
 
-    //printf("Entering Spike Detector::process\n");
     mut.enter();
-    uint16_t samplingFrequencyHz = getSampleRate();//buffer.getSamplingFrequency();
+
     // cycle through electrodes
-    Electrode* electrode;
-    dataBuffer = &buffer;
-	const SpikeChannel* spikeChan;
-
-    //channelBuffers->update(buffer, hardware_timestamp,software_timestamp, nSamples);
-
-    for (int i = 0; i < electrodes.size(); i++)
+    for (int electrode_idx = 0; electrode_idx < electrodes.size(); electrode_idx++)
     {
+        Electrode* electrode = electrodes[electrode_idx];
 
-        //  std::cout << "ELECTRODE " << i << std::endl;
+        int nSamples = getNumSamples(electrode->get_channel(0)); // get the number of samples for this buffer
+        std::vector<const float *> data;
 
-        electrode = electrodes[i];
-		spikeChan = spikeChannelArray[i];
-
-        // refresh buffer index for this electrode
-        sampleIndex = electrode->lastBufferIndex - 1; // subtract 1 to account for
-        // increment at start of getNextSample()
-
-        int nSamples = getNumSamples(*electrode->channels); // get the number of samples for this buffer
-
-        // cycle through samples
-        while (samplesAvailable(nSamples))
-        {
-
-            sampleIndex++;
-
-            // cycle through channels
-            for (int chan = 0; chan < electrode->numChannels; chan++)
-            {
-
-                // std::cout << "  channel " << chan << std::endl;
-
-                if (*(electrode->isActive+chan))
-                {
-                    //float v = getNextSample(currentChannel);
-
-                    int currentChannel = electrode->channels[chan];
-                    float currentValue = getNextSample(currentChannel);
-                    electrode->runningStats[chan].Push(currentValue);
-
-                    bool bSpikeDetectedPositive  = electrode->thresholds[chan] > 0 &&
-                                                   (currentValue > electrode->thresholds[chan]); // rising edge
-                    bool bSpikeDetectedNegative = electrode->thresholds[chan] < 0 &&
-                                                  (currentValue < electrode->thresholds[chan]); // falling edge
-
-                    if (bSpikeDetectedPositive || bSpikeDetectedNegative)
-                    {
-
-                        //std::cout << "Spike detected on electrode " << i << std::endl;
-                        // find the peak
-                        int peakIndex = sampleIndex;
-
-                        //if (sampleIndex == 0 && i == 0)
-                        //    std::cout << getCurrentSample(currentChannel) << std::endl;
-
-                        if (bSpikeDetectedPositive)
-                        {
-                            // find localmaxima
-                            while (getCurrentSample(currentChannel) < getNextSample(currentChannel) &&
-                                   sampleIndex < peakIndex + electrode->postPeakSamples)
-                            {
-                                sampleIndex++;
-                            }
-                        }
-                        else
-                        {
-                            // find local minimum
-
-                            while (getCurrentSample(currentChannel) > getNextSample(currentChannel) &&
-                                   sampleIndex < peakIndex + electrode->postPeakSamples)
-                            {
-                                sampleIndex++;
-                            }
-                        }
-
-                        peakIndex = sampleIndex;
-                        sampleIndex -= (electrode->prePeakSamples+1);
-
-						const SpikeChannel* spikeChan = getSpikeChannel(i);
-						SpikeEvent::SpikeBuffer spikeData(spikeChan);
-						Array<float> thresholds;
-						for (int channel = 0; channel < electrode->numChannels; ++channel)
-						{
-							addWaveformToSpikeObject(spikeData,
-								peakIndex,
-								i,
-								channel);
-							thresholds.add((int)*(electrode->thresholds + channel));
-						}
-						int64 timestamp = getTimestamp(electrode->channels[0]) + peakIndex;
-
-						SorterSpikePtr sorterSpike = new SorterSpikeContainer(spikeChan, spikeData, timestamp);
-
-                        /*
-                        bool perfectMatch = true;
-                        for (int k=0;k<40;k++) {
-                        	perfectMatch = perfectMatch & (prevSpike.data[k] == newSpike.data[k]);
-                        }
-                        if (perfectMatch)
-                        {
-                        	int x;
-                        	x++;
-                        }
-                        */
-
-                        //for (int xxx = 0; xxx < 1000; xxx++) // overload with spikes for testing purposes
-						electrode->spikeSort->projectOnPrincipalComponents(sorterSpike);
-
-                        // Add spike to drawing buffer....
-						electrode->spikeSort->sortSpike(sorterSpike, PCAbeforeBoxes);
-
-
-                        // transfer buffered spikes to spike plot
-                        if (electrode->spikePlot != nullptr)
-                        {
-                            if (electrode->spikeSort->isPCAfinished())
-                            {
-                                electrode->spikeSort->resetJobStatus();
-                                float p1min,p2min, p1max,  p2max;
-                                electrode->spikeSort->getPCArange(p1min,p2min, p1max,  p2max);
-                                electrode->spikePlot->setPCARange(p1min,p2min, p1max,  p2max);
-                            }
-
-
-							electrode->spikePlot->processSpikeObject(sorterSpike);
-                        }
-
-						MetaDataValueArray md;
-						md.add(new MetaDataValue(MetaDataDescriptor::UINT8, 3, sorterSpike->color));
-						SpikeEventPtr newSpike = SpikeEvent::createSpikeEvent(spikeChan, timestamp, thresholds, spikeData, sorterSpike->sortedId, md);
-
-                        addSpike(spikeChan, newSpike, peakIndex);
-                        //prevSpike = newSpike;
-                        // advance the sample index
-                        sampleIndex = peakIndex + electrode->postPeakSamples;
-
-                        break; // quit spike "for" loop
-                    } // end spike trigger
-
-                } // end if channel is active
-            } // end cycle through channels on electrode
-
-
-        } // end cycle through samples
-
-        //float vv = getNextSample(currentChannel);
-        electrode->lastBufferIndex = sampleIndex - nSamples; // should be negative
-
-        //jassert(electrode->lastBufferIndex < 0);
-
-        if (nSamples > overflowBufferSize)
-        {
-
-            for (int j = 0; j < electrode->numChannels; j++)
-            {
-                //std::cout << "Processing " << *electrode->channels+i << std::endl;
-
-                overflowBuffer.copyFrom(*(electrode->channels+j), 0,
-                                        buffer, *(electrode->channels+j),
-                                        nSamples-overflowBufferSize,
-                                        overflowBufferSize);
-
+        // cycle through channels for this electrode
+        for (int chan = 0; chan < electrode->numChannels; chan++) {
+            if (!electrode->is_active(chan)) {
+                continue;
             }
 
-            useOverflowBuffer.set(i, true);
-
+            const float *read_pointer = buffer.getReadPointer(chan, 0);
+            for (int i = 0; i < nSamples; i++) {
+                electrode->runningStats[chan].Push(read_pointer[i]);
+            }
+            data.push_back(read_pointer);
         }
-        else
-        {
-            useOverflowBuffer.set(i, false);
-        }
 
+        // TODO: previous functionality seems to get one spike at most in this window across the channels in this
+        // electrode (e.g. multi-channel alignment needs to be implemented here). Support that. Instead, we just
+        // assert that these are "single electrodes", but leave the rest of the multi-channel logic intact here.
+        jassert(electrode->numChannels <= 1);
+
+        auto crossings = electrode->crossing_calculator->consume(&data.front(), nSamples);
+
+        for (const auto& crossing : crossings) {
+            const SpikeChannel *kSpikeChan = getSpikeChannel(electrode_idx);
+            SpikeEvent::SpikeBuffer spikeData(kSpikeChan);
+            Array<float> thresholds;
+            for (int channel = 0; channel < electrode->numChannels; ++channel) {
+                addWaveformToSpikeObject(spikeData,
+                                         electrode_idx,
+                                         channel,
+                                         crossing);
+                thresholds.add(electrode->get_threshold(channel));
+            }
+            int64 relative_peak_index = crossing.data_index + electrode->prePeakSamples;
+            int64 timestamp = getTimestamp(electrode->get_channel(0)) + relative_peak_index;
+
+            SorterSpikePtr sorterSpike = new SorterSpikeContainer(kSpikeChan, spikeData, timestamp);
+
+            electrode->spikeSort->projectOnPrincipalComponents(sorterSpike);
+
+            // Add spike to drawing buffer....
+            electrode->spikeSort->sortSpike(sorterSpike, PCAbeforeBoxes);
+
+            // transfer buffered spikes to spike plot
+            if (electrode->spikePlot != nullptr) {
+                if (electrode->spikeSort->isPCAfinished()) {
+                    electrode->spikeSort->resetJobStatus();
+                    float p1min, p2min, p1max, p2max;
+                    electrode->spikeSort->getPCArange(p1min, p2min, p1max, p2max);
+                    electrode->spikePlot->setPCARange(p1min, p2min, p1max, p2max);
+                }
+                electrode->spikePlot->processSpikeObject(sorterSpike);
+            }
+
+            MetaDataValueArray md;
+            md.add(new MetaDataValue(MetaDataDescriptor::UINT8, 3, sorterSpike->color));
+            SpikeEventPtr newSpike = SpikeEvent::createSpikeEvent(kSpikeChan, timestamp, thresholds, spikeData,
+                                                                  sorterSpike->sortedId, md);
+
+            addSpike(kSpikeChan, newSpike, relative_peak_index);
+        }
     } // end cycle through electrodes
-
 
     mut.exit();
     //printf("Exitting Spike Detector::process\n");
 }
 
-float SpikeSorter::getNextSample(int& chan)
-{
-
-
-
-    //if (useOverflowBuffer)
-    //{
-    if (sampleIndex < 0)
-    {
-        // std::cout << "  sample index " << sampleIndex << "from overflowBuffer" << std::endl;
-        int ind = overflowBufferSize + sampleIndex;
-
-        if (ind < overflowBuffer.getNumSamples())
-            return (*overflowBuffer.getReadPointer(chan, ind));
-        else
-            return 0;
-
-    }
-    else
-    {
-        //  useOverflowBuffer = false;
-        // std::cout << "  sample index " << sampleIndex << "from regular buffer" << std::endl;
-
-        if (sampleIndex < getNumSamples(chan))
-            return (*dataBuffer->getReadPointer(chan, sampleIndex));
-        else
-            return 0;
-    }
-    //} else {
-    //    std::cout << "  sample index " << sampleIndex << "from regular buffer" << std::endl;
-    //     return *dataBuffer.getSampleData(chan, sampleIndex);
-    //}
-
-}
-
-float SpikeSorter::getCurrentSample(int& chan)
-{
-
-    // if (useOverflowBuffer)
-    // {
-    //     return *overflowBuffer.getSampleData(chan, overflowBufferSize + sampleIndex - 1);
-    // } else {
-    //     return *dataBuffer.getSampleData(chan, sampleIndex - 1);
-    // }
-
-    if (sampleIndex < 1)
-    {
-        //std::cout << "  sample index " << sampleIndex << "from overflowBuffer" << std::endl;
-        return (*overflowBuffer.getReadPointer(chan, overflowBufferSize + sampleIndex - 1)) ;
-    }
-    else
-    {
-        //  useOverflowBuffer = false;
-        // std::cout << "  sample index " << sampleIndex << "from regular buffer" << std::endl;
-        return (*dataBuffer->getReadPointer(chan, sampleIndex - 1));
-    }
-    //} else {
-
-}
-
-
-bool SpikeSorter::samplesAvailable(int nSamples)
-{
-
-    if (sampleIndex > nSamples - overflowBufferSize/2)
-    {
-        return false;
-    }
-    else
-    {
-        return true;
-    }
-
-}
 
 void SpikeSorter::addProbes(String probeType,int numProbes, int nElectrodesPerProbe, int nChansPerElectrode,  double firstContactOffset, double interelectrodeDistance)
 {
@@ -1218,9 +1054,9 @@ void SpikeSorter::saveCustomParametersToXml(XmlElement* parentElement)
         for (int j = 0; j < electrodes[i]->numChannels; j++)
         {
             XmlElement* channelNode = electrodeNode->createNewChildElement("SUBCHANNEL");
-            channelNode->setAttribute("ch",*(electrodes[i]->channels+j));
-            channelNode->setAttribute("thresh",*(electrodes[i]->thresholds+j));
-            channelNode->setAttribute("isActive",*(electrodes[i]->isActive+j));
+            channelNode->setAttribute("ch",electrodes[i]->get_channel(j));
+            channelNode->setAttribute("thresh",electrodes[i]->get_threshold(j));
+            channelNode->setAttribute("isActive",electrodes[i]->is_active(j));
 
         }
 
@@ -1307,16 +1143,26 @@ void SpikeSorter::loadCustomParametersFromXml()
 
                         int sourceNodeId = 102010; // some number
 
-                        Electrode* newElectrode = new Electrode(electrodeID, &uniqueIDgenerator,&computingThread, electrodeName, channelsPerElectrode, channels,getDefaultThreshold(),
-                                                                numPreSamples,numPostSamples, getSampleRate(), sourceNodeId,0);
+                        Electrode *newElectrode = new Electrode(electrodeID,
+                                                                &uniqueIDgenerator,
+                                                                &computingThread,
+                                                                electrodeName,
+                                                                channelsPerElectrode,
+                                                                channels,
+                                                                getDefaultThreshold(),
+                                                                numPreSamples,
+                                                                numPostSamples,
+                                                                getSampleRate(),
+                                                                sourceNodeId,
+                                                                0);
                         for (int k=0; k<channelsPerElectrode; k++)
                         {
-                            newElectrode->thresholds[k] = thres[k];
-                            newElectrode->isActive[k] = isActive[k];
+                            newElectrode->set_threshold(k, thres[k]);
+                            newElectrode->set_is_active(k, isActive[k]);
                         }
-			delete[] channels;
-			delete[] thres;
-			delete[] isActive;
+                        delete[] channels;
+                        delete[] thres;
+                        delete[] isActive;
 
                         newElectrode->advancerID = advancerID;
                         newElectrode->depthOffsetMM = depthOffsetMM;
@@ -1435,7 +1281,7 @@ std::vector<int> SpikeSorter::getElectrodeChannels(int ID)
             ch.resize(electrodes[k]->numChannels);
             for (int j=0; j<electrodes[k]->numChannels; j++)
             {
-                ch[j] = electrodes[k]->channels[j];
+                ch[j] = electrodes[k]->get_channel(j);
             }
 
             mut.exit();
