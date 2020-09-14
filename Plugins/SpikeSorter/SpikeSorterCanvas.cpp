@@ -694,7 +694,7 @@ void SpikeHistogramPlot::initAxes(std::vector<float> scales)
     for (int i = 0; i < nWaveAx; i++)
     {
         WaveformAxes* wAx = new WaveformAxes(this,processor, electrodeID, i);
-        wAx->setDetectorThreshold(processor->getActiveElectrode()->thresholds[i]);
+        wAx->setDetectorThreshold(processor->getActiveElectrode()->get_threshold(i));
         wAxes.add(wAx);
         addAndMakeVisible(wAx);
         ranges.add(scales[i]);
@@ -1487,7 +1487,7 @@ void WaveformAxes::mouseDrag(const MouseEvent& event)
              }
          }
         else{
-            processor->getActiveElectrode()->thresholds[channel] = displayThresholdLevel;
+            processor->getActiveElectrode()->set_threshold(channel, displayThresholdLevel);
         }
 
         SpikeSorterEditor* edt = (SpikeSorterEditor*) processor->getEditor();
