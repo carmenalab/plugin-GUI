@@ -49,6 +49,7 @@ static inline File getSavedStateDirectory() {
 			false);   // useBottomCornerRisizer -- doesn't work very well
 
 	shouldReloadOnStartup = false;
+	shouldEnableHttpServer = false;
 
 	// Create ProcessorGraph and AudioComponent, and connect them.
 	// Callbacks will be set by the play button in the control panel
@@ -93,8 +94,11 @@ static inline File getSavedStateDirectory() {
 		ui->getEditorViewport()->loadState(file);
 	}
 
-
-
+	if (shouldEnableHttpServer) {
+		processorGraph->enableHttpServer();
+	} else {
+		processorGraph->disableHttpServer();
+	}
 }
 
 MainWindow::~MainWindow()
@@ -152,6 +156,7 @@ void MainWindow::saveWindowBounds()
 
 	xml->setAttribute("version", JUCEApplication::getInstance()->getApplicationVersion());
 	xml->setAttribute("shouldReloadOnStartup", shouldReloadOnStartup);
+	xml->setAttribute("shouldEnableHttpServer", shouldEnableHttpServer);
 
 	XmlElement* bounds = new XmlElement("BOUNDS");
 	bounds->setAttribute("x",getScreenX());
@@ -211,6 +216,7 @@ void MainWindow::loadWindowBounds()
 		String description;
 
 		shouldReloadOnStartup = xml->getBoolAttribute("shouldReloadOnStartup", false);
+        shouldEnableHttpServer = xml->getBoolAttribute("shouldEnableHttpServer", false);
 
 		forEachXmlChildElement(*xml, e)
 		{

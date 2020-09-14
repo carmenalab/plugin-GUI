@@ -49,6 +49,8 @@ class TimestampSourceSelectionWindow;
        AudioNode, Configuration, MessageCenter
 */
 
+class ProcessorGraphHttpServer;
+
 class ProcessorGraph    : public AudioProcessorGraph
                         , public ChangeListener
 {
@@ -60,11 +62,14 @@ public:
     GenericProcessor* createProcessorFromDescription(Array<var>& description);
 
     void removeProcessor(GenericProcessor* processor);
-    Array<GenericProcessor*> getListOfProcessors();
+    Array<GenericProcessor*> getListOfProcessors() const;
     void clearSignalChain();
 
     bool enableProcessors();
     bool disableProcessors();
+
+    void enableHttpServer();
+    void disableHttpServer();
 
     RecordNode* getRecordNode();
     AudioNode* getAudioNode();
@@ -103,6 +108,7 @@ public:
 
 private:
     int currentNodeId;
+    std::unique_ptr<ProcessorGraphHttpServer> http_server_thread;
 
     enum nodeIds
     {
