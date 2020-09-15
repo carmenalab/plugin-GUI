@@ -135,13 +135,11 @@ public:
                      int channel = request_json["channel"];
                      auto value = request_json["value"];
 
-                     var val;
-                     if (value.is_number_integer()) {
-                         val = var(value.get<int>());
-                     } else if (value.is_number_float()) {
-                         val = var(value.get<float>());
-                     } else if (value.is_boolean()) {
-                         val = var(value.get<bool>());
+                     var val = json_to_var(value);
+                     if (val.isUndefined()) {
+                         res.set_content("Request value could not be converted.", "text/plain");
+                         res.status = 400;
+                         return;
                      }
 
                      bool did_set = parameter->setValue(val, channel);
@@ -181,6 +179,26 @@ private:
     std::unique_ptr<httplib::Server> svr_;
     const ProcessorGraph *graph_;
 
+    var json_to_var(const json& value) {
+        if (value.is_number_integer()) {
+            return var(value.get<int>());
+        } else if (value.is_number_float()) {
+            return var(value.get<double>());
+        } else if (value.is_boolean()) {
+            return var(value.get<bool>());
+        } else if (value.is_string()) {
+            return var(value.get<std::string>());
+        } else if (value.is_array()) {
+            juce::Array<var> vars;
+            for (auto& element : value) {
+                vars.add(element.get<double>());
+            }
+            return var(vars);
+        } else {
+            return var::undefined();
+        }
+    }
+
     inline static void parameter_to_json(Parameter *parameter, json *parameter_json) {
         (*parameter_json)["name"] = parameter->getName().toStdString();
         (*parameter_json)["type"] = parameter->getParameterTypeString().toStdString();
@@ -190,12 +208,19 @@ private:
             json value_json;
             value_json["channel"] = chidx;
             const var &val = parameter->getValue(chidx);
-            if (parameter->isBoolean()) {
+            if (val.isBool()) {
                 value_json["value"] = val.operator bool();
-            } else if (parameter->isContinuous() || parameter->isNumerical()) {
+            } else if (val.isDouble()) {
                 value_json["value"] = val.operator double();
-            } else if (parameter->isDiscrete()) {
+            } else if (val.isInt()) {
                 value_json["value"] = val.operator int();
+            } else if (val.isString()) {
+                value_json["value"] = val.toString().toStdString();
+            } else if (val.isArray()) {
+                auto val_array = val.getArray();
+                for (const auto& val_element : *val_array) {
+                    value_json["value"].push_back(val_element.operator double());
+                }
             } else {
                 value_json["value"] = "UNKNOWN";
             }

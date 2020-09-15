@@ -66,6 +66,30 @@ Parameter::Parameter (const String& name,
     registerValueListeners();
 }
 
+Parameter::Parameter (const String& name,
+                      float minPossibleValue, float maxPossibleValue, const Array<var>& defaultValue,
+                      int ID,
+                      bool deactivateDuringAcquisition)
+        : shouldDeactivateDuringAcquisition (deactivateDuringAcquisition)
+        , m_parameterType                   (PARAMETER_TYPE_CONTINUOUS_ARRAY)
+        , m_nameValueObject                 (name)
+        , m_descriptionValueObject          (String::empty)
+        , m_parameterIdValueObject          (ID)
+        , m_defaultValueObject              (defaultValue)
+{
+    m_possibleValues.add (minPossibleValue);
+    m_possibleValues.add (maxPossibleValue);
+
+    // Initialize default value
+    m_values.set (0, defaultValue);
+
+    m_minValueObject = minPossibleValue;
+    m_maxValueObject = maxPossibleValue;
+
+    registerValueListeners();
+}
+
+
 
 Parameter::Parameter (const String& name,
                       Array<var> a,
@@ -110,6 +134,21 @@ Parameter::Parameter (const String& name, const String& labelName,
     registerValueListeners();
 }
 
+Parameter::Parameter (const String& name, const String& defaultValue, int ID, bool deactivateDuringAcquisition)
+        : shouldDeactivateDuringAcquisition (deactivateDuringAcquisition)
+        , m_parameterType                   (PARAMETER_TYPE_STRING)
+        , m_nameValueObject                 (name)
+        , m_descriptionValueObject          (String::empty)
+        , m_parameterIdValueObject          (ID)
+        , m_defaultValueObject              (defaultValue)
+{
+    m_minValueObject = 0;
+    m_maxValueObject = 0;
+
+    registerValueListeners();
+}
+
+
 
 void Parameter::registerValueListeners()
 {
@@ -143,10 +182,12 @@ var Parameter::operator[] (int channel)   const { return m_values[channel]; }
 
 Parameter::ParameterType Parameter::getParameterType() const noexcept { return m_parameterType; }
 
-bool Parameter::isBoolean()     const noexcept { return m_parameterType == PARAMETER_TYPE_BOOLEAN; }
-bool Parameter::isContinuous()  const noexcept { return m_parameterType == PARAMETER_TYPE_CONTINUOUS; }
-bool Parameter::isDiscrete()    const noexcept { return m_parameterType == PARAMETER_TYPE_DISCRETE; }
-bool Parameter::isNumerical()   const noexcept { return m_parameterType == PARAMETER_TYPE_NUMERICAL; }
+bool Parameter::isBoolean()           const noexcept { return m_parameterType == PARAMETER_TYPE_BOOLEAN; }
+bool Parameter::isContinuous()        const noexcept { return m_parameterType == PARAMETER_TYPE_CONTINUOUS; }
+bool Parameter::isDiscrete()          const noexcept { return m_parameterType == PARAMETER_TYPE_DISCRETE; }
+bool Parameter::isNumerical()         const noexcept { return m_parameterType == PARAMETER_TYPE_NUMERICAL; }
+bool Parameter::isContinuousArray()   const noexcept { return m_parameterType == PARAMETER_TYPE_CONTINUOUS_ARRAY; }
+bool Parameter::isString()            const noexcept { return m_parameterType == PARAMETER_TYPE_STRING; }
 
 bool Parameter::hasCustomEditorBounds() const noexcept { return m_hasCustomEditorBounds; }
 
@@ -178,6 +219,10 @@ String Parameter::getParameterTypeString() const noexcept
         return "Discrete";
     else if (isNumerical())
         return "Numerical";
+    else if (isContinuousArray())
+        return "ContinuousArray";
+    else if (isString())
+        return "String";
 
     // This should never happen
     jassertfalse;
@@ -202,7 +247,7 @@ int Parameter::getEditorRecommendedWidth() const noexcept
 {
     if (isBoolean())
         return 120;
-    else if (isContinuous())
+    else if (isContinuous() || isContinuousArray() || isString())
         return 80;
     else if (isDiscrete())
         return 35 * getPossibleValues().size();
@@ -217,7 +262,7 @@ int Parameter::getEditorRecommendedHeight() const noexcept
 {
     if (isBoolean())
         return 25;
-    else if (isContinuous())
+    else if (isContinuous() || isContinuousArray() || isString())
         return 80;
     else if (isDiscrete())
         return 30;
@@ -261,9 +306,12 @@ void Parameter::setValue (float value, int channel)
         const double newValue = jlimit (double (m_possibleValues[0]), double (m_possibleValues[1]), (double)value);
         m_values.set (channel, newValue);
     }
-    else
+    else if (isDiscrete())
     {
         m_values.set (channel, value);
+    } else {
+        jassertfalse;
+        // Do nothing - invalid type.
     }
 }
 
@@ -282,6 +330,20 @@ bool Parameter::setValue(const var &val, int chan) {
         }
     } else if (isNumerical()) {
         if (!val.isDouble()) {
+            return false;
+        }
+    } else if (isContinuousArray()) {
+        // Must be an array of doubles
+        if (!val.isArray()) {
+            return false;
+        }
+        if (val.size() > 0) {
+            if (!val[0].isDouble()) {
+                return false;
+            }
+        }
+    } else if (isString()) {
+        if (!val.isString()) {
             return false;
         }
     } else {
