@@ -31,6 +31,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <atomic>
 #include <utility>
 #include <sstream>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 class SorterSpikeContainer : public ReferenceCountedObject
 {
@@ -61,17 +64,35 @@ public:
 
     PointD();
     PointD(float x, float y);
+    PointD(const std::vector<float>& dims);
     PointD(const PointD& P);
     const PointD operator+(const PointD& c1) const;
     PointD& operator+=(const PointD& rhs);
     PointD& operator-=(const PointD& rhs);
 
-
     const PointD operator-(const PointD& c1) const;
     const PointD operator*(const PointD& c1) const;
 
     float cross(PointD c) const;
-    float X,Y;
+
+    float operator[](int index) const;
+
+    void set(const std::initializer_list<double>& dims) {
+        dims_.clear();
+        for (const double &dim : dims) {
+            dims_.push_back((float) dim);
+        }
+    }
+
+    void set(const std::vector<float>& dims) {
+        dims_ = dims;
+    }
+
+    std::vector<float> dims() const {
+        return dims_;
+    }
+private:
+    std::vector<float> dims_;
 };
 
 
@@ -180,6 +201,7 @@ public:
 PCAjob();
 };*/
 
+
 class PCAResults {
 public:
     int num_pcs;
@@ -187,7 +209,7 @@ public:
     std::vector<float> pc_mins;
     std::vector<float> pc_maxes;
 
-    PCAResults() = default;
+    PCAResults() : num_pcs(0) {}
 
     PCAResults(
             int num_pcs,
@@ -206,8 +228,8 @@ public:
         return pcs.size() == num_pcs && pc_mins.size() == num_pcs && pc_maxes.size() == num_pcs;
     }
 
-    Value ToValue() const;
-    bool FromValue(const Value& value, const int expected_pc_vector_samples);
+    json ToJson() const;
+    bool FromJson(const json& value, int expected_pc_vector_samples);
 
     explicit operator std::string() const {
         std::stringstream ss;
@@ -242,13 +264,76 @@ private:
 typedef ReferenceCountedObjectPtr<PCAjob> PCAJobPtr;
 typedef ReferenceCountedArray<PCAjob, CriticalSection> PCAJobArray;
 
-class cPolygon
+class cShape
 {
 public:
-    cPolygon();
-    bool isPointInside(PointD p);
-    std::vector<PointD> pts;
-    PointD offset;
+    virtual ~cShape() = default;
+    virtual bool isPointInside(PointD p) const = 0;
+    virtual std::vector<PointD>& pts() = 0;
+    virtual PointD& offset() = 0;
+    virtual bool CanSerializeToXml() const = 0;
+    virtual json ToJson() const = 0;
+    virtual bool FromJson(const json& value) = 0;
+};
+
+
+class cPolygon : public cShape
+{
+public:
+    bool isPointInside(PointD p) const override;
+    json ToJson() const override;
+    bool FromJson(const json& value) override;
+
+    std::vector<PointD>& pts() override {
+        return pts_;
+    }
+    PointD& offset() override {
+        return offset_;
+    };
+
+    bool CanSerializeToXml() const override {
+        return true;
+    }
+private:
+    std::vector<PointD> pts_;
+    PointD offset_;
+};
+
+class cEllipse : public cShape
+{
+public:
+    explicit cEllipse() {
+        n_dims = 0;
+    };
+
+    cEllipse(const PointD& center,
+             const std::vector<std::vector<float>>& rotation,
+             const std::vector<float>& radii);
+
+    bool isPointInside(PointD p) const override;
+    json ToJson() const override;
+    bool FromJson(const json& value) override;
+
+    std::vector<PointD>& pts() override {
+        return sample_pts_;
+    }
+
+    PointD& offset() override {
+        return center_;
+    };
+
+    bool CanSerializeToXml() const override {
+        // Can be done, just not needed at the moment (always loaded via the API for now)
+        return false;
+    }
+private:
+    int n_dims;
+    PointD center_;
+    std::vector<std::vector<float>> rotation_;
+    std::vector<float> radii_;
+    std::vector<PointD> sample_pts_;
+
+    void populate_sample_pts();
 };
 
 
@@ -270,7 +355,6 @@ class PCAUnit
 public:
     PCAUnit();
     PCAUnit(int ID, int localID);
-    PCAUnit(cPolygon B, int ID, int localID_);
     ~PCAUnit();
     int getUnitID();
     int getLocalID();
@@ -278,15 +362,27 @@ public:
     bool isPointInsidePolygon(PointD p);
     void resizeWaveform(int newlength);
 	void updateWaveform(SorterSpikePtr so);
+
+    json ToJson() const;
+    bool FromJson(const json& value);
 public:
     int UnitID;
     int localID; // used internally, for colors and position.
-    cPolygon poly;
+    std::shared_ptr<cShape> poly;
     uint8_t ColorRGB[3];
     RunningStats WaveformStat;
     bool Active;
     juce::int64 Activated_TS_S;
     Time timer;
+};
+
+class PCASorting {
+public:
+    PCAResults results;
+    std::vector<PCAUnit> units;
+
+    Value ToValue() const;
+    bool FromValue(const Value& value, int expected_pc_vector_samples);
 };
 
 // Sort spikes from a single electrode (which could have any number of channels)
@@ -300,7 +396,7 @@ public:
                    int numch,
                    double SamplingRate,
                    int WaveFormLength,
-                   Parameter *parameter);
+                   Parameter *pca_parameter);
     ~SpikeSortBoxes();
 
     void resizeWaveform(int numSamples);
@@ -347,16 +443,14 @@ public:
     void saveCustomParametersToXml(XmlElement* electrodeNode);
     void loadCustomParametersFromXml(XmlElement* electrodeNode);
 private:
-    //void  StartCriticalSection();
-    //void  EndCriticalSection();
+    void synchronizePCAParameter();
     UniqueIDgenerator* uniqueIDgenerator;
     int numChannels, waveformLength;
     int selectedUnit, selectedBox;
     CriticalSection mut;
     std::vector<BoxUnit> boxUnits;
-    std::vector<PCAUnit> pcaUnits;
 
-    PCAResults pca_results_;
+    PCASorting pca_sorting_;
 
     SorterSpikeArray spikeBuffer;
     int bufferSize,spikeBufferIndex;
@@ -364,7 +458,7 @@ private:
     bool bPCAJobSubmitted,bPCAcomputed,bRePCA, bShouldPCA;
     std::atomic<bool> bPCAjobFinished ;
 
-    Parameter *parameter_;
+    Parameter *pca_parameter_;
 };
 
 //Those are legacy methods from the old spike system that are must likely not needed in the new one
