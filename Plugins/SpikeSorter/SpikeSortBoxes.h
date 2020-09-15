@@ -311,6 +311,10 @@ public:
     void projectOnPrincipalComponents(SorterSpikePtr so);
 	bool sortSpike(SorterSpikePtr so, bool PCAfirst);
     void RePCA();
+
+    void DisablePeriodicPCA();
+    void EnablePeriodicPCA();
+
     void addPCAunit(PCAUnit unit);
     int addBoxUnit(int channel);
     int addBoxUnit(int channel, Box B);
@@ -357,7 +361,7 @@ private:
     SorterSpikeArray spikeBuffer;
     int bufferSize,spikeBufferIndex;
     PCAcomputingThread* computingThread;
-    bool bPCAJobSubmitted,bPCAcomputed,bRePCA;
+    bool bPCAJobSubmitted,bPCAcomputed,bRePCA, bShouldPCA;
     std::atomic<bool> bPCAjobFinished ;
 
     Parameter *parameter_;

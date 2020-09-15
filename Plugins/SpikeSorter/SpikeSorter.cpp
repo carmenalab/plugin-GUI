@@ -123,6 +123,24 @@ void SpikeSorter::setNumPostSamples(int numSamples)
     }
 }
 
+bool SpikeSorter::getDisablePeriodicPCA() const
+{
+    return disable_periodic_pca_;
+}
+
+void SpikeSorter::setDisablePeriodicPCA(bool disable_periodic_pca)
+{
+    disable_periodic_pca_ = disable_periodic_pca;
+    for (int k = 0; k < electrodes.size(); k++)
+    {
+        if (disable_periodic_pca) {
+            electrodes[k]->spikeSort->DisablePeriodicPCA();
+        } else {
+            electrodes[k]->spikeSort->EnablePeriodicPCA();
+        }
+    }
+}
+
 
 int SpikeSorter::getUniqueProbeID(String type)
 {
@@ -1061,7 +1079,8 @@ void SpikeSorter::saveCustomParametersToXml(XmlElement* parentElement)
     mainNode->setAttribute("autoDACassignment",	autoDACassignment);
     mainNode->setAttribute("syncThresholds",syncThresholds);
     mainNode->setAttribute("uniqueID",uniqueID);
-    mainNode->setAttribute("flipSignal",flipSignal);
+    mainNode->setAttribute("flipSignal", flipSignal);
+    mainNode->setAttribute("disablePeriodicPCA", getDisablePeriodicPCA());
 
     XmlElement* countNode = mainNode->createNewChildElement("ELECTRODE_COUNTER");
 
@@ -1207,6 +1226,9 @@ void SpikeSorter::loadCustomParametersFromXml()
 
                     }
                 }
+
+                // Ensure this is done *after* populating electrodes, so the setting propagates properly.
+                setDisablePeriodicPCA(mainNode->getBoolAttribute("disablePeriodicPCA", false));
             }
         }
     }
