@@ -596,7 +596,6 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator* uniqueIDgenerator_,PCAcomputin
 {
     uniqueIDgenerator = uniqueIDgenerator_;
     computingThread = pth;
-    pc1 = pc2 = nullptr;
     bufferSize = 200;
     spikeBufferIndex = -1;
     bPCAcomputed = false;
@@ -605,15 +604,11 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator* uniqueIDgenerator_,PCAcomputin
     selectedUnit = -1;
     selectedBox = -1;
     bRePCA = false;
-    pc1min = -1;
-    pc2min = -1;
-    pc1max = 1;
-    pc2max = 1;
     numChannels = numch;
     waveformLength = WaveFormLength;
 
-    pc1 = new float[numChannels * waveformLength];
-    pc2 = new float[numChannels * waveformLength];
+    pca_results_.num_pcs = 2;
+
     for (int n = 0; n < bufferSize; n++)
     {
 
@@ -624,12 +619,9 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator* uniqueIDgenerator_,PCAcomputin
 void SpikeSortBoxes::resizeWaveform(int numSamples)
 {
     const ScopedLock myScopedLock(mut);
-    //StartCriticalSection();
+
     waveformLength = numSamples;
-    delete[] pc1;
-    delete[] pc2;
-    pc1 = new float[numChannels * waveformLength];
-    pc2 = new float[numChannels * waveformLength];
+    pca_results_.clear();
     spikeBuffer.clear();
     for (int n = 0; n < bufferSize; n++)
     {
@@ -642,10 +634,6 @@ void SpikeSortBoxes::resizeWaveform(int numSamples)
 	selectedUnit = -1;
 	selectedBox = -1;
 	bRePCA = false;
-	pc1min = -1;
-	pc2min = -1;
-	pc1max = 1;
-	pc2max = 1;
 
     for (int k=0; k<pcaUnits.size(); k++)
     {
@@ -655,7 +643,6 @@ void SpikeSortBoxes::resizeWaveform(int numSamples)
     {
         boxUnits[k].resizeWaveform(waveformLength);
     }
-    //EndCriticalSection();
 }
 
 
@@ -682,29 +669,55 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                 {
                     numChannels = UnitNode->getIntAttribute("numChannels");
                     waveformLength = UnitNode->getIntAttribute("waveformLength");
-
-                    pc1min = UnitNode->getDoubleAttribute("pc1min");
-                    pc2min = UnitNode->getDoubleAttribute("pc2min");
-                    pc1max = UnitNode->getDoubleAttribute("pc1max");
-                    pc2max = UnitNode->getDoubleAttribute("pc2max");
-
                     bPCAjobFinished = UnitNode->getBoolAttribute("PCAjobFinished");
                     bPCAcomputed = UnitNode->getBoolAttribute("PCAcomputed");
 
-                    delete[] pc1;
-                    delete[] pc2;
+                    pca_results_.clear();
+                    pca_results_.num_pcs = UnitNode->getIntAttribute("numPCs", 2);
 
-                    pc1 = new float[waveformLength*numChannels];
-                    pc2 = new float[waveformLength*numChannels];
-                    int dimcounter = 0;
+                    bool is_old_style_pcs = false;
+                    if (UnitNode->hasAttribute("pc1min")) {
+                        // "Old" style with 2 hardcoded PCs, detected by presence of "old" tag
+                        jassert(pca_results_.num_pcs == 2);
+                        is_old_style_pcs = true;
+                        pca_results_.pc_mins.push_back(UnitNode->getDoubleAttribute("pc1min"));
+                        pca_results_.pc_mins.push_back(UnitNode->getDoubleAttribute("pc2min"));
+
+                        pca_results_.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc1max"));
+                        pca_results_.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc2max"));
+                    }
+
                     forEachXmlChildElement(*UnitNode, dimNode)
                     {
+
                         if (dimNode->hasTagName("PCA_DIM"))
                         {
-                            pc1[dimcounter]=dimNode->getDoubleAttribute("pc1");
-                            pc2[dimcounter]=dimNode->getDoubleAttribute("pc2");
-                            dimcounter++;
+                            // "Old" style with 2 hardcoded PCs if it has "PCA_DIM"
+                            jassert(is_old_style_pcs);
+                            if (pca_results_.pcs.empty()) {
+                                pca_results_.pcs.emplace_back();
+                                pca_results_.pcs.emplace_back();
+                            }
+                            pca_results_.pcs[0].push_back(dimNode->getDoubleAttribute("pc1"));
+                            pca_results_.pcs[1].push_back(dimNode->getDoubleAttribute("pc2"));
+                        } else if (dimNode->hasTagName("PC")) {
+                            jassert(!is_old_style_pcs);
+                            pca_results_.pc_maxes.push_back(dimNode->getDoubleAttribute("max_projection"));
+                            pca_results_.pc_mins.push_back(dimNode->getDoubleAttribute("min_projection"));
+                            std::vector<float> pc_vector;
+                            forEachXmlChildElement(*dimNode, pc_element_node)
+                            {
+                                if (pc_element_node->hasTagName("PC_ELEMENT")) {
+                                    pc_vector.push_back(pc_element_node->getDoubleAttribute("value"));
+                                }
+                            }
+                            pca_results_.pcs.push_back(pc_vector);
                         }
+                    }
+
+                    // If any of the dimensions across the various PC fields mismatch, then start fresh.
+                    if (!pca_results_.is_populated()) {
+                        pca_results_.clear();
                     }
                 }
 
@@ -776,22 +789,25 @@ void SpikeSortBoxes::saveCustomParametersToXml(XmlElement* electrodeNode)
     spikesortNode->setAttribute("selectedBox",selectedBox);
 
 
-    XmlElement* pcaNode = electrodeNode->createNewChildElement("PCA");
+    XmlElement* pcaNode = spikesortNode->createNewChildElement("PCA");
     pcaNode->setAttribute("numChannels",numChannels);
     pcaNode->setAttribute("waveformLength",waveformLength);
-    pcaNode->setAttribute("pc1min", pc1min);
-    pcaNode->setAttribute("pc2min", pc2min);
-    pcaNode->setAttribute("pc1max", pc1max);
-    pcaNode->setAttribute("pc2max", pc2max);
-
     pcaNode->setAttribute("PCAjobFinished", bPCAjobFinished);
     pcaNode->setAttribute("PCAcomputed", bPCAcomputed);
+    pcaNode->setAttribute("numPCs", pca_results_.num_pcs);
 
-    for (int k=0; k<numChannels*waveformLength; k++)
-    {
-        XmlElement* dimNode = pcaNode->createNewChildElement("PCA_DIM");
-        dimNode->setAttribute("pc1",pc1[k]);
-        dimNode->setAttribute("pc2",pc2[k]);
+    if (pca_results_.is_populated()) {
+        for (int pc_idx = 0; pc_idx < pca_results_.num_pcs; pc_idx++) {
+            XmlElement* pc = pcaNode->createNewChildElement("PC");
+            pc->setAttribute("min_projection", pca_results_.pc_mins[pc_idx]);
+            pc->setAttribute("max_projection", pca_results_.pc_maxes[pc_idx]);
+
+            auto pc_vector = pca_results_.pcs[pc_idx];
+            for (float k : pc_vector) {
+                XmlElement *pc_element = pc->createNewChildElement("PC_ELEMENT");
+                pc_element->setAttribute("value", k);
+            }
+        }
     }
 
     for (int boxUnitIter=0; boxUnitIter<boxUnits.size(); boxUnitIter++)
@@ -834,19 +850,10 @@ void SpikeSortBoxes::saveCustomParametersToXml(XmlElement* electrodeNode)
         }
     }
 
-
-    //float *pc1, *pc2;
-
-
 }
 
 SpikeSortBoxes::~SpikeSortBoxes()
 {
-    // wait until PCA job is done (if one was submitted).
-    delete[] pc1;
-    delete[] pc2;
-    pc1 = nullptr;
-    pc2 = nullptr;
 }
 
 void SpikeSortBoxes::setSelectedUnitAndBox(int unitID, int boxID)
@@ -873,16 +880,14 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
 
     if (bPCAcomputed)
     {
-        so->pcProj[0] = so->pcProj[1] = 0;
-        for (int k=0; k<so->getChannel()->getNumChannels()*so->getChannel()->getTotalSamples(); k++)
-        {
-            float v = spikeDataIndexToMicrovolts(so, k);
-            so->pcProj[0] += pc1[k]* v;
-            so->pcProj[1] += pc2[k]* v;
-        }
-        if (so->pcProj[0] > 1e5 || so->pcProj[0] < -1e5 || so->pcProj[1] > 1e5 || so->pcProj[1] < -1e5)
-        {
-            //int dbg = 1;
+        so->pcProj.clear();
+        so->pcProj.resize(pca_results_.num_pcs, 0.0);
+        for (int pc_idx = 0; pc_idx < pca_results_.num_pcs; pc_idx++) {
+            for (int k=0; k<so->getChannel()->getNumChannels()*so->getChannel()->getTotalSamples(); k++)
+            {
+                float v = spikeDataIndexToMicrovolts(so, k);
+                so->pcProj[pc_idx] += pca_results_.pcs[pc_idx][k]* v;
+            }
         }
     }
     else
@@ -895,28 +900,31 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
 	    bPCAcomputed = false;
             bRePCA = false;
             // submit a new job to compute the spike buffer.
-            PCAJobPtr job = new PCAjob(spikeBuffer,pc1,pc2, pc1min, pc2min, pc1max, pc2max, bPCAjobFinished);
+            PCAJobPtr job = new PCAjob(spikeBuffer, &pca_results_, bPCAjobFinished);
             computingThread->addPCAjob(job);
         }
     }
 }
 
-void SpikeSortBoxes::getPCArange(float& p1min,float& p2min, float& p1max,  float& p2max)
+void SpikeSortBoxes::getPCArange(int pc_idx, float& min,float& max)
 {
-    p1min = pc1min;
-    p2min = pc2min;
-    p1max = pc1max;
-    p2max = pc2max;
+    if (pca_results_.pc_mins.size() <= pc_idx || pca_results_.pc_maxes.size() <= pc_idx) {
+        min = -1.0;
+        max = 1.0;
+    } else {
+        min = pca_results_.pc_mins[pc_idx];
+        max = pca_results_.pc_maxes[pc_idx];
+    }
 }
 
-void SpikeSortBoxes::setPCArange(float p1min,float p2min, float p1max,  float p2max)
+void SpikeSortBoxes::setPCArange(int pc_idx, float min,float max)
 {
-    pc1min=p1min;
-    pc2min=p2min;
-    pc1max=p1max;
-    pc2max=p2max;
+    if (pca_results_.pc_mins.size() <= pc_idx || pca_results_.pc_maxes.size() <= pc_idx) {
+        return;
+    }
+    pca_results_.pc_mins[pc_idx] = min;
+    pca_results_.pc_maxes[pc_idx] = max;
 }
-
 
 void SpikeSortBoxes::resetJobStatus()
 {
@@ -1684,6 +1692,7 @@ bool PCAUnit::isPointInsidePolygon(PointD p)
 
 bool PCAUnit::isWaveFormInsidePolygon(SorterSpikePtr so)
 {
+    // Only support 2D projections with these "hand-drawn" polygons
     return poly.isPointInside(PointD(so->pcProj[0],so->pcProj[1]));
 }
 
@@ -1716,14 +1725,12 @@ static int iminarg1,iminarg2;
 static double sqrarg;
 #define SQR(a) ((sqrarg = (a)) == 0.0 ? 0.0 : sqrarg * sqrarg)
 
-PCAjob::PCAjob(SorterSpikeArray& _spikes, float* _pc1, float* _pc2,
-                std::atomic<float>& pc1Min,  std::atomic<float>& pc2Min,  std::atomic<float>&pc1Max,  std::atomic<float>& pc2Max, std::atomic<bool>& _reportDone) : spikes(_spikes),
-pc1min(pc1Min), pc2min(pc2Min), pc1max(pc1Max), pc2max(pc2Max), reportDone(_reportDone)
-{
+PCAjob::PCAjob(SorterSpikeArray& _spikes,
+               PCAResults *results,
+               std::atomic<bool> &_reportDone)
+        : spikes(_spikes), results_(results), reportDone(_reportDone) {
 	SorterSpikePtr spike = spikes[0];
     cov = nullptr;
-    pc1 = _pc1;
-    pc2 = _pc2;
 
     dim = spike->getChannel()->getNumChannels()*spike->getChannel()->getTotalSamples();
 
@@ -2096,38 +2103,34 @@ void PCAjob::computeSVD()
 
     std::vector<int> sortind = sort_indexes(sig);
 
-    for (int k = 0; k < dim; k++)
-    {
-        pc1[k] = eigvec[k][sortind[0]];
-        pc2[k] = eigvec[k][sortind[1]];
-    }
-    // project samples to find the display range
-    float min1 = 1e10, min2 = 1e10, max1 = -1e10, max2 = -1e10;
+    results_->clear();
+    int num_pcs = results_->num_pcs;
 
-    for (int j = 0; j < spikes.size(); j++)
-    {
-        float sum1 = 0, sum2=0;
+    for (int pc_idx = 0; pc_idx < num_pcs; pc_idx++) {
+        std::vector<float> pc;
         for (int k = 0; k < dim; k++)
         {
-            SorterSpikePtr spike = spikes[j];
-            sum1 += spikeDataIndexToMicrovolts(spike,k) * pc1[k];
-            sum2 += spikeDataIndexToMicrovolts(spike,k) * pc2[k];
+            pc.push_back(eigvec[k][sortind[pc_idx]]);
         }
-        if (sum1 < min1)
-            min1 = sum1;
-        if (sum2 < min2)
-            min2 = sum2;
-        if (sum1 > max1)
-            max1 = sum1;
-        if (sum2 > max2)
-            max2 = sum2;
+        results_->pcs.push_back(pc);
     }
 
+    // project samples to find the display range
+    for (int pc_idx = 0; pc_idx < num_pcs; pc_idx++) {
+        float min = 1e10;
+        float max = -1e10;
+        for (auto spike : spikes) {
+            float sum = 0;
+            for (int k = 0; k < dim; k++) {
+                sum += spikeDataIndexToMicrovolts(spike, k) * results_->pcs[pc_idx][k];
+            }
+            min = std::min(min, sum);
+            max = std::max(max, sum);
+        }
 
-    pc1min = min1 - 1.5 * (max1-min1);
-    pc2min = min2 - 1.5 * (max2-min2);
-    pc1max = max1 + 1.5 * (max1-min1);
-    pc2max = max2 + 1.5 * (max2-min2);
+        results_->pc_mins.push_back(min - 1.5 * (max - min));
+        results_->pc_maxes.push_back(max + 1.5 * (max - min));
+    }
 
     // clear memory
     for (int k = 0; k < dim; k++)
@@ -2226,8 +2229,11 @@ int microSecondsToSpikeTimeBin(SorterSpikePtr s, float t, int ch)
 
 SorterSpikeContainer::SorterSpikeContainer(const SpikeChannel* channel, SpikeEvent::SpikeBuffer& spikedata, int64 timestamp)
 {
-	color[0] = color[1] = color[2] = 127;
-	pcProj[0] = pcProj[1] = 0;
+    color[0] = color[1] = color[2] = 127;
+
+    // Hard-code at least 2 projections to allow drawing of bare axes
+    pcProj.clear();
+	pcProj.resize(2, 0);
 	sortedId = 0;
 	this->timestamp = timestamp;
 	chan = channel;

@@ -29,6 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <list>
 #include <queue>
 #include <atomic>
+#include <utility>
 
 class SorterSpikeContainer : public ReferenceCountedObject
 {
@@ -41,7 +42,7 @@ public:
 	const SpikeChannel* getChannel() const;
 	int64 getTimestamp() const;
 	uint8 color[3];
-	float pcProj[2];
+	std::vector<float> pcProj;
 	uint16 sortedId;
 private:
 	int64 timestamp;
@@ -177,24 +178,55 @@ class PCAjob
 public:
 PCAjob();
 };*/
-class PCAjob : public ReferenceCountedObject
-{
+
+class PCAResults {
 public:
-    PCAjob(SorterSpikeArray& _spikes, float* _pc1, float* _pc2,
-           std::atomic<float>&,  std::atomic<float>&,  std::atomic<float>&,  std::atomic<float>&, std::atomic<bool>& _reportDone);
+    int num_pcs;
+    std::vector<std::vector<float>> pcs;
+    std::vector<float> pc_mins;
+    std::vector<float> pc_maxes;
+
+    PCAResults() = default;
+
+    PCAResults(
+            int num_pcs,
+            std::vector<std::vector<float>> pcs,
+            std::vector<float> pc_mins,
+            std::vector<float> pc_maxes)
+            : num_pcs(num_pcs), pcs(std::move(pcs)), pc_mins(std::move(pc_mins)), pc_maxes(std::move(pc_maxes)) {}
+
+    void clear() {
+        pcs.clear();
+        pc_mins.clear();
+        pc_maxes.clear();
+    }
+
+    bool is_populated() const {
+        return pcs.size() == num_pcs && pc_mins.size() == num_pcs && pc_maxes.size() == num_pcs;
+    }
+};
+
+class PCAjob : public ReferenceCountedObject {
+public:
+    PCAjob(SorterSpikeArray &_spikes,
+           PCAResults *results,
+           std::atomic<bool> &_reportDone);
+
     ~PCAjob();
+
     void computeCov();
+
     void computeSVD();
 
     float** cov;
     SorterSpikeArray spikes;
-    float* pc1, *pc2;
-    std::atomic<float>& pc1min, &pc2min, &pc1max, &pc2max;
     std::atomic<bool>& reportDone;
+
 private:
     int svdcmp(float** a, int nRows, int nCols, float* w, float** v);
     float pythag(float a, float b);
     int dim;
+    PCAResults *results_;
 };
 
 typedef ReferenceCountedObjectPtr<PCAjob> PCAJobPtr;
@@ -266,8 +298,9 @@ public:
     int addBoxUnit(int channel);
     int addBoxUnit(int channel, Box B);
 
-    void getPCArange(float& p1min,float& p2min, float& p1max,  float& p2max);
-    void setPCArange(float p1min,float p2min, float p1max,  float p2max);
+    void getPCArange(int pc_idx, float &min, float &max);
+    void setPCArange(int pc_idx, float min, float max);
+
     void resetJobStatus();
     bool isPCAfinished();
 
@@ -301,8 +334,9 @@ private:
     CriticalSection mut;
     std::vector<BoxUnit> boxUnits;
     std::vector<PCAUnit> pcaUnits;
-    float* pc1, *pc2;
-    std::atomic<float> pc1min, pc2min, pc1max, pc2max;
+
+    PCAResults pca_results_;
+
     SorterSpikeArray spikeBuffer;
     int bufferSize,spikeBufferIndex;
     PCAcomputingThread* computingThread;
