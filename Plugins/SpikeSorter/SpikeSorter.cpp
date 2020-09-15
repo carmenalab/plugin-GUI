@@ -925,8 +925,10 @@ void SpikeSorter::process(AudioSampleBuffer& buffer)
             if (electrode->spikePlot != nullptr) {
                 if (electrode->spikeSort->isPCAfinished()) {
                     electrode->spikeSort->resetJobStatus();
+
                     float p1min, p2min, p1max, p2max;
-                    electrode->spikeSort->getPCArange(p1min, p2min, p1max, p2max);
+                    electrode->spikeSort->getPCArange(0, p1min, p1max);
+                    electrode->spikeSort->getPCArange(1, p2min, p2max);
                     electrode->spikePlot->setPCARange(p1min, p2min, p1max, p2max);
                 }
                 electrode->spikePlot->processSpikeObject(sorterSpike);

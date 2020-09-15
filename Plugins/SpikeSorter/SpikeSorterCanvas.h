@@ -309,7 +309,6 @@ public:
     void mouseDrag(const juce::MouseEvent& event);
     bool keyPressed(const KeyPress& key);
     void mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel);
-    void redraw(bool subsample);
 
     void updateUnits(std::vector<PCAUnit> _units);
 

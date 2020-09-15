@@ -702,7 +702,8 @@ void SpikeHistogramPlot::initAxes(std::vector<float> scales)
 
     PCAProjectionAxes* pAx = new PCAProjectionAxes(processor);
     float p1min,p2min, p1max,  p2max;
-    processor->getActiveElectrode()->spikeSort->getPCArange(p1min,p2min, p1max,  p2max);
+    processor->getActiveElectrode()->spikeSort->getPCArange(0, p1min, p1max);
+    processor->getActiveElectrode()->spikeSort->getPCArange(1, p2min, p2max);
     pAx->setPCARange(p1min,p2min, p1max,  p2max);
 
     pAxes.add(pAx);
@@ -1843,7 +1844,6 @@ void PCAProjectionAxes::paint(Graphics& g)
                 0, 0, getWidth(), getHeight(),
                 0, 0, rangeX, rangeY);
 
-
     // draw pca units polygons
     for (int k=0; k<units.size(); k++)
     {
@@ -1894,7 +1894,8 @@ void PCAProjectionAxes::paint(Graphics& g)
 
         for (int k=0; k<bufferSize; k+=dk)
         {
-            drawProjectedSpike(spikeBuffer[k]);
+            const SorterSpikePtr &spike = spikeBuffer[k];
+            drawProjectedSpike(spike);
         }
         redrawSpikes = false;
     }
@@ -1910,6 +1911,7 @@ void PCAProjectionAxes::drawProjectedSpike(SorterSpikePtr s)
 
         g.setColour(Colour(s->color[0],s->color[1],s->color[2]));
 
+        // Only display the first two components, even if there are more
         float x = (s->pcProj[0] - pcaMin[0]) / (pcaMax[0]-pcaMin[0]) * rangeX;
         float y = (s->pcProj[1] - pcaMin[1]) / (pcaMax[1]-pcaMin[1]) * rangeY;
         if (x >= 0 & y >= 0 & x <= rangeX & y <= rangeY)
@@ -1917,27 +1919,7 @@ void PCAProjectionAxes::drawProjectedSpike(SorterSpikePtr s)
     }
 }
 
-void PCAProjectionAxes::redraw(bool subsample)
-{
-    Graphics g(projectionImage);
-
-    // recompute image
-    //int w = getWidth();
-    //int h = getHeight();
-    projectionImage.clear(juce::Rectangle<int>(0, 0, projectionImage.getWidth(), projectionImage.getHeight()),
-                          Colours::black);
-
-    int dk = (subsample) ? 5 : 1;
-
-    for (int k=0; k<bufferSize; k+=dk)
-    {
-        drawProjectedSpike(spikeBuffer[k]);
-    }
-
-}
-
-void PCAProjectionAxes::setPCARange(float p1min, float p2min, float p1max, float p2max)
-{
+void PCAProjectionAxes::setPCARange(float p1min, float p2min, float p1max, float p2max) {
 
     pcaMin[0] = p1min;
     pcaMin[1] = p2min;
@@ -1945,8 +1927,9 @@ void PCAProjectionAxes::setPCARange(float p1min, float p2min, float p1max, float
     pcaMax[1] = p2max;
     rangeSet = true;
     redrawSpikes = true;
-    processor->getActiveElectrode()->spikeSort->setPCArange(p1min,p2min, p1max,  p2max);
 
+    processor->getActiveElectrode()->spikeSort->setPCArange(0, p1min, p1max);
+    processor->getActiveElectrode()->spikeSort->setPCArange(1, p2min, p2max);
 }
 
 bool PCAProjectionAxes::updateSpikeData(SorterSpikePtr s)
@@ -2040,7 +2023,9 @@ void PCAProjectionAxes::mouseDrag(const juce::MouseEvent& event)
             pcaMin[1]+=dy;
             pcaMax[0]+=dx;
             pcaMax[1]+=dy;
-            processor->getActiveElectrode()->spikeSort->setPCArange(pcaMin[0],pcaMin[1], pcaMax[0],  pcaMax[1]);
+
+            processor->getActiveElectrode()->spikeSort->setPCArange(0, pcaMin[0], pcaMax[0]);
+            processor->getActiveElectrode()->spikeSort->setPCArange(1, pcaMin[1], pcaMax[1]);
 
             // draw polygon
             prevx = event.x;
