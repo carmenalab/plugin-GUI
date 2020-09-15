@@ -239,6 +239,10 @@ void Parameter::setDescription (const String& description)
     m_descriptionValueObject = description;
 }
 
+int Parameter::getNumChannels() const
+{
+    return m_values.size();
+}
 
 void Parameter::setValue (float value, int channel)
 {
@@ -261,6 +265,31 @@ void Parameter::setValue (float value, int channel)
     {
         m_values.set (channel, value);
     }
+}
+
+bool Parameter::setValue(const var &val, int chan) {
+    if (isBoolean()) {
+        if (!val.isBool()) {
+            return false;
+        }
+    } else if (isContinuous()) {
+        if (!val.isDouble()) {
+            return false;
+        }
+    } else if (isDiscrete()) {
+        if (!val.isInt()) {
+            return false;
+        }
+    } else if (isNumerical()) {
+        if (!val.isDouble()) {
+            return false;
+        }
+    } else {
+        // Unhandled type?
+        jassertfalse;
+    }
+    m_values.set(chan, val);
+    return true;
 }
 
 

@@ -138,6 +138,9 @@ public:
     /** Returns the desired bounds for editor if parameter has it. */
     const juce::Rectangle<int>& getEditorDesiredBounds() const noexcept;
 
+    /** Gets the channels with values set for this parameter. */
+    int getNumChannels() const;
+
     /** Sets the name of a parameter. */
     void setName (const String& newName);
 
@@ -146,6 +149,9 @@ public:
 
     /** Sets the value of a parameter for a given channel.*/
     void setValue (float val, int chan);
+
+    /** Sets the value of a parameter for a given channel. Returns whether the value was actually set. */
+    bool setValue(const var &val, int chan);
 
     /** Sets the possible values. It makes sense only for discrete parameters. */
     void setPossibleValues (Array<var> possibleValues);
