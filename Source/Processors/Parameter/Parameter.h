@@ -56,6 +56,8 @@ public:
         , PARAMETER_TYPE_CONTINUOUS
         , PARAMETER_TYPE_DISCRETE
         , PARAMETER_TYPE_NUMERICAL
+        , PARAMETER_TYPE_STRING
+        , PARAMETER_TYPE_CONTINUOUS_ARRAY
     };
 
     /** Constructor for boolean parameters.*/
@@ -70,6 +72,12 @@ public:
                int ID,
                bool deactivateDuringAcquisition = false);
 
+    /** Constructor for arrays of continuous (float) parameters. */
+    Parameter (const String& name,
+               float minPossibleValue, float maxPossibleValue, const Array<var>& defaultValue,
+               int ID,
+               bool deactivateDuringAcquisition = false);
+
     /** Constructor for categorical parameters.*/
     Parameter (const String& name,
                Array<var> possibleValues,
@@ -79,6 +87,12 @@ public:
     /** Constructor for numerical parameters (label). */
     Parameter (const String& name, const String& labelName,
                double minPossibleValue, double maxPossibleValue, double defaultValue,
+               int ID,
+               bool deactivateDuringAcquisition = false);
+
+    /** Constructor for string parameters. */
+    Parameter (const String& name,
+               const String& defaultValue,
                int ID,
                bool deactivateDuringAcquisition = false);
 
@@ -120,11 +134,17 @@ public:
     /** Returns true if a parameter is continuous, false otherwise.*/
     bool isContinuous() const noexcept;
 
+    /** Returns true if a parameter is a continuous array, false otherwise.*/
+    bool isContinuousArray() const noexcept;
+
     /** Returns true if a parameter is discrete, false otherwise.*/
     bool isDiscrete() const noexcept;
 
     /** Returns true if a parameter is numerical, false otherwise.*/
     bool isNumerical() const noexcept;
+
+    /** Returns true if a parameter is numerical, false otherwise.*/
+    bool isString() const noexcept;
 
     /** Returns true if a user set custom bounds for the possible parameter editor, false otherwise. */
     bool hasCustomEditorBounds() const noexcept;
