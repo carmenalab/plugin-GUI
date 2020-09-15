@@ -329,6 +329,7 @@ void SpikeSorterEditor::buttonEvent(Button* button)
         configMenu.addSubMenu("Waveform",waveSizeMenu,true);
         configMenu.addItem(5,"Current Channel => Audio",true,processor->getAutoDacAssignmentStatus());
         configMenu.addItem(6,"Threshold => All channels",true,processor->getThresholdSyncStatus());
+        configMenu.addItem(8,"Disable periodic PCA",true,processor->getDisablePeriodicPCA());
 
         const int result = configMenu.show();
         switch (result)
@@ -358,6 +359,9 @@ void SpikeSorterEditor::buttonEvent(Button* button)
                 break;
             case 7:
                 processor->setFlipSignalState(!processor->getFlipSignalState());
+                break;
+            case 8:
+                processor->setDisablePeriodicPCA(!processor->getDisablePeriodicPCA());
                 break;
         }
 

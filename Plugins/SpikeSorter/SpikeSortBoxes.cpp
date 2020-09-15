@@ -922,10 +922,10 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
     {
         // add a spike object to the buffer.
         // if we have enough spikes, start the PCA computation thread.
-        if ((spikeBufferIndex == bufferSize -1 && !bPCAcomputed && !bPCAJobSubmitted) || bRePCA)
-        {
+        bool spikeBufferFull = spikeBufferIndex == bufferSize - 1;
+        if (bShouldPCA && ((spikeBufferFull && !bPCAcomputed && !bPCAJobSubmitted) || bRePCA)) {
             bPCAJobSubmitted = true;
-	    bPCAcomputed = false;
+            bPCAcomputed = false;
             bRePCA = false;
             // submit a new job to compute the spike buffer.
             PCAJobPtr job = new PCAjob(spikeBuffer, &pca_results_, bPCAjobFinished);
@@ -968,6 +968,16 @@ void SpikeSortBoxes::RePCA()
     bPCAcomputed = false;
     bPCAJobSubmitted = false;
     bRePCA = true;
+}
+
+void SpikeSortBoxes::DisablePeriodicPCA() {
+    bRePCA = false;
+    bShouldPCA = false;
+}
+
+void SpikeSortBoxes::EnablePeriodicPCA() {
+    bRePCA = true;
+    bShouldPCA = true;
 }
 
 void SpikeSortBoxes::addPCAunit(PCAUnit unit)

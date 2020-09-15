@@ -368,6 +368,8 @@ public:
     int getNumPostSamples();
     void setNumPreSamples(int numSamples);
     void setNumPostSamples(int numSamples);
+    bool getDisablePeriodicPCA() const;
+    void setDisablePeriodicPCA(bool disable_periodic_pca);
     int getDACassignment(int channel);
     void assignDACtoChannel(int dacOutput, int channel);
     Array<int> getDACassignments();
@@ -452,10 +454,10 @@ private:
 
     OwnedArray<Electrode> electrodes;
     PCAcomputingThread computingThread;
-
+    bool disable_periodic_pca_;
     bool editAll = false;
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpikeSorter);
 
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpikeSorter);
 };
 
 
