@@ -165,6 +165,7 @@ public:
     ~Electrode();
 
     void resizeWaveform(int numPre, int numPost);
+    Parameter *ParameterToRegister();
 
     String name;
 
@@ -200,11 +201,13 @@ public:
 
     double get_threshold(int channel_index);
     void set_threshold(int channel_index, double threshold);
+
 private:
     double* thresholds_;
     bool* isActive_;
     int* channels_;
     void recreate_threshold_crossing_calculator();
+    Parameter *parameter_;
 };
 
 class ContinuousCircularBuffer

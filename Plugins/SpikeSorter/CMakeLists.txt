@@ -36,7 +36,27 @@ add_subdirectory(${CMAKE_CURRENT_BINARY_DIR}/tcrosser-src
 		${CMAKE_CURRENT_BINARY_DIR}/tcrosser-build
 		EXCLUDE_FROM_ALL)
 
+# ===== External Dependency: json
+if (NOT TARGET nlohmann_json::nlohmann_json)
+	configure_file(CMakeLists.txt.in.json json-download/CMakeLists.txt)
+	execute_process(COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}" .
+			RESULT_VARIABLE result
+			WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/json-download )
+	if(result)
+		message(FATAL_ERROR "CMake step for json failed: ${result}")
+	endif()
+	execute_process(COMMAND ${CMAKE_COMMAND} --build .
+			RESULT_VARIABLE result
+			WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/json-download )
+	if(result)
+		message(FATAL_ERROR "Build step for json failed: ${result}")
+	endif()
+	add_subdirectory(${CMAKE_CURRENT_BINARY_DIR}/json-src
+			${CMAKE_CURRENT_BINARY_DIR}/json-build
+			EXCLUDE_FROM_ALL)
+endif()
+
 #optional: create IDE groups
 #plugin_create_filters()
 
-target_link_libraries(${PLUGIN_NAME} tcrosser)
+target_link_libraries(${PLUGIN_NAME} tcrosser nlohmann_json::nlohmann_json)

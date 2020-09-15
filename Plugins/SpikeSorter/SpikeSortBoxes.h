@@ -30,6 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <queue>
 #include <atomic>
 #include <utility>
+#include <sstream>
 
 class SorterSpikeContainer : public ReferenceCountedObject
 {
@@ -204,6 +205,15 @@ public:
     bool is_populated() const {
         return pcs.size() == num_pcs && pc_mins.size() == num_pcs && pc_maxes.size() == num_pcs;
     }
+
+    Value ToValue() const;
+    bool FromValue(const Value& value, const int expected_pc_vector_samples);
+
+    explicit operator std::string() const {
+        std::stringstream ss;
+        ss << "PCAResults[num_pcs=" << num_pcs << ",is_populated=" << is_populated() << "]";
+        return ss.str();
+    }
 };
 
 class PCAjob : public ReferenceCountedObject {
@@ -282,16 +292,23 @@ public:
 // Sort spikes from a single electrode (which could have any number of channels)
 // using the box method. Any electrode could have an arbitrary number of units specified.
 // Each unit is defined by a set of boxes, which can be placed on any of the given channels.
-class SpikeSortBoxes
+class SpikeSortBoxes : Parameter::Listener
 {
 public:
-    SpikeSortBoxes(UniqueIDgenerator* uniqueIDgenerator_, PCAcomputingThread* pth, int numch, double SamplingRate, int WaveFormLength);
+    SpikeSortBoxes(UniqueIDgenerator *uniqueIDgenerator_,
+                   PCAcomputingThread *pth,
+                   int numch,
+                   double SamplingRate,
+                   int WaveFormLength,
+                   Parameter *parameter);
     ~SpikeSortBoxes();
 
     void resizeWaveform(int numSamples);
 
+    // Parameter::Listener
+    void parameterValueChanged (Value& valueThatWasChanged) override;
 
-	void projectOnPrincipalComponents(SorterSpikePtr so);
+    void projectOnPrincipalComponents(SorterSpikePtr so);
 	bool sortSpike(SorterSpikePtr so, bool PCAfirst);
     void RePCA();
     void addPCAunit(PCAUnit unit);
@@ -343,7 +360,7 @@ private:
     bool bPCAJobSubmitted,bPCAcomputed,bRePCA;
     std::atomic<bool> bPCAjobFinished ;
 
-
+    Parameter *parameter_;
 };
 
 //Those are legacy methods from the old spike system that are must likely not needed in the new one
