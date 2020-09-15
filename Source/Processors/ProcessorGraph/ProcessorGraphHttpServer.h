@@ -125,23 +125,41 @@ public:
                          return;
                      }
 
-                     json request_json = json::parse(req.body);
+                     json request_json;
+                     try {
+                         request_json = json::parse(req.body);
+                     } catch (json::exception &e) {
+                         res.set_content(e.what(), "text/plain");
+                         res.status = 400;
+                         return;
+                     }
+
                      if (!request_json.contains("channel") || !request_json.contains("value")) {
                          res.set_content("Request must contain channel and value.", "text/plain");
                          res.status = 400;
                          return;
                      }
 
-                     int channel = request_json["channel"];
-                     auto value = request_json["value"];
+                     int channel;
+                     var val;
 
-                     var val = json_to_var(value);
+                     try {
+                         channel = request_json["channel"];
+                         auto value = request_json["value"];
+                         val = json_to_var(value);
+                     } catch (json::exception &e) {
+                         res.set_content(e.what(), "text/plain");
+                         res.status = 400;
+                         return;
+                     }
+
                      if (val.isUndefined()) {
                          res.set_content("Request value could not be converted.", "text/plain");
                          res.status = 400;
                          return;
                      }
 
+                     var original_val = parameter->getValue(channel);
                      bool did_set = parameter->setValue(val, channel);
                      if (!did_set) {
                          std::stringstream ss;
@@ -149,6 +167,11 @@ public:
                          res.set_content(ss.str(), "text/plain");
                          res.status = 400;
                          return;
+                     }
+
+                     if (original_val != val) {
+                         Value original_value(original_val);
+                         parameter->valueChanged(original_value);
                      }
 
                      json ret;

@@ -25,6 +25,7 @@
 #include "SpikeSorter.h"
 #include "SpikeSortBoxes.h"
 #include "SpikeSorterCanvas.h"
+#include <iomanip>
 
 class spikeSorter;
 
@@ -45,6 +46,9 @@ SpikeSorter::SpikeSorter()
     autoDACassignment = false;
     syncThresholds = false;
     flipSignal = false;
+
+
+    // Has a handle on parameters here. Make one parameter per electrode? Can just use JSON?
 }
 
 bool SpikeSorter::getFlipSignalState()
@@ -210,8 +214,18 @@ Electrode::~Electrode()
     delete[] runningStats;
 }
 
-Electrode::Electrode(int ID, UniqueIDgenerator* uniqueIDgenerator_, PCAcomputingThread* pth, String _name, int _numChannels, int* _channels, float default_threshold, int pre, int post, float samplingRate , int sourceId, int subIdx)
-{
+Electrode::Electrode(int ID,
+                     UniqueIDgenerator *uniqueIDgenerator_,
+                     PCAcomputingThread *pth,
+                     String _name,
+                     int _numChannels,
+                     int *_channels,
+                     float default_threshold,
+                     int pre,
+                     int post,
+                     float samplingRate,
+                     int sourceId,
+                     int subIdx) {
     electrodeID = ID;
     computingThread = pth;
     uniqueIDgenerator = uniqueIDgenerator_;
@@ -244,12 +258,28 @@ Electrode::Electrode(int ID, UniqueIDgenerator* uniqueIDgenerator_, PCAcomputing
 
     spikePlot = nullptr;
 
+    std::stringstream parameter_name;
+    parameter_name << "electrode" << std::setfill('0') << std::setw(4) << ID;
+    parameter_ = new Parameter(
+            juce::String(parameter_name.str()),
+            juce::String("{}"),
+            ID,
+            false);
     if (computingThread != nullptr)
-        spikeSort = new SpikeSortBoxes(uniqueIDgenerator, computingThread, numChannels, samplingRate, pre+post);
+        spikeSort = new SpikeSortBoxes(uniqueIDgenerator,
+                                       computingThread,
+                                       numChannels,
+                                       samplingRate,
+                                       pre + post,
+                                       parameter_);
     else
         spikeSort = nullptr;
 
     isMonitored = false;
+}
+
+Parameter *Electrode::ParameterToRegister() {
+    return parameter_;
 }
 
 void Electrode::recreate_threshold_crossing_calculator() {
@@ -503,6 +533,7 @@ bool SpikeSorter::addElectrode(int nChans, String name, double Depth)
                                             getSampleRate(),
                                             dataChannelArray[chans[0]]->getSourceNodeID(),
                                             dataChannelArray[chans[0]]->getSubProcessorIdx());
+    parameters.add(newElectrode->ParameterToRegister());
 
     newElectrode->depthOffsetMM = Depth;
     String log = "Added electrode (ID "+ String(uniqueID)+") with " + String(nChans) + " channels." ;
@@ -1075,6 +1106,7 @@ void SpikeSorter::loadCustomParametersFromXml()
 
     if (parametersAsXml != nullptr)
     {
+        parameters.clear(true);
 
         int electrodeIndex = -1;
 
@@ -1162,6 +1194,7 @@ void SpikeSorter::loadCustomParametersFromXml()
                             newElectrode->set_threshold(k, thres[k]);
                             newElectrode->set_is_active(k, isActive[k]);
                         }
+                        parameters.add(newElectrode->ParameterToRegister());
                         delete[] channels;
                         delete[] thres;
                         delete[] isActive;

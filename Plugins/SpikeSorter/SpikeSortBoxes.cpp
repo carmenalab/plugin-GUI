@@ -25,6 +25,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <algorithm>
 #include "SpikeSortBoxes.h"
 #include "SpikeSorter.h"
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 PointD::PointD()
 {
@@ -592,8 +595,12 @@ void BoxUnit::updateWaveform(SorterSpikePtr so)
 
 /***********************************************/
 
-SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator* uniqueIDgenerator_,PCAcomputingThread* pth, int numch, double SamplingRate, int WaveFormLength)
-{
+SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator *uniqueIDgenerator_,
+                               PCAcomputingThread *pth,
+                               int numch,
+                               double SamplingRate,
+                               int WaveFormLength,
+                               Parameter *parameter) {
     uniqueIDgenerator = uniqueIDgenerator_;
     computingThread = pth;
     bufferSize = 200;
@@ -607,13 +614,31 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator* uniqueIDgenerator_,PCAcomputin
     numChannels = numch;
     waveformLength = WaveFormLength;
 
+    parameter_ = parameter;
     pca_results_.num_pcs = 2;
 
     for (int n = 0; n < bufferSize; n++)
     {
-
         spikeBuffer.add(nullptr);
     }
+
+    parameter_->addListener(this);
+}
+
+void SpikeSortBoxes::parameterValueChanged(Value &valueThatWasChanged) {
+    if (parameter_->getNumChannels() != 1) {
+        // Something invalid? Only one channel supported.
+        return;
+    }
+
+    juce::String parameter_value_str = parameter_->getValue(0).toString();
+
+    PCAResults new_results;
+    bool success = new_results.FromValue(Value(parameter_->getValue(0)), numChannels * waveformLength);
+    if (!success) {
+        return;
+    }
+    pca_results_ = new_results;
 }
 
 void SpikeSortBoxes::resizeWaveform(int numSamples)
@@ -719,6 +744,7 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                     if (!pca_results_.is_populated()) {
                         pca_results_.clear();
                     }
+                    parameter_->setValue(pca_results_.ToValue(), 0);
                 }
 
                 if (UnitNode->hasTagName("BOXUNIT"))
@@ -875,6 +901,8 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
     spikeBuffer.set(spikeBufferIndex, so);
     if (bPCAjobFinished)
     {
+        // pca_results_ have been updated by the PCA job, so ensure the parameter is updated too:
+        parameter_->setValue(pca_results_.ToValue(), 0);
         bPCAcomputed = true;
     }
 
@@ -2255,4 +2283,74 @@ const SpikeChannel* SorterSpikeContainer::getChannel() const
 int64 SorterSpikeContainer::getTimestamp() const
 {
 	return timestamp;
+}
+
+Value PCAResults::ToValue() const {
+    json ret;
+    ret["num_pcs"] = num_pcs;
+    ret["pc_mins"] = pc_mins;
+    ret["pc_maxes"] = pc_maxes;
+    for (const auto& pc_vec : pcs) {
+        ret["pcs"].push_back(pc_vec);
+    }
+    return Value(var(juce::String(ret.dump())));
+}
+
+bool PCAResults::FromValue(const Value &value, const int expected_pc_vector_samples) {
+    juce::String parameter_value_str = value.toString();
+
+    json parameter_value;
+    try {
+        parameter_value = json::parse(parameter_value_str.toStdString());
+    } catch (json::exception &e) {
+        std::cout << "Expected json in electrode parameter, but failed to parse: " << e.what() << std::endl;
+        return false;
+    }
+
+    try {
+        num_pcs = parameter_value["num_pcs"];
+    } catch (json::exception &e) {
+        std::cout << "Could not parse num_pcs as integer: " << e.what() << std::endl;
+        return false;
+    }
+
+    try {
+        pc_mins = std::vector<float>(parameter_value["pc_mins"].begin(), parameter_value["pc_mins"].end());
+    } catch (json::exception &e) {
+        std::cout << "Could not parse pc_mins as array of floats: " << e.what() << std::endl;
+        return false;
+    }
+
+    try {
+        pc_maxes = std::vector<float>(parameter_value["pc_maxes"].begin(), parameter_value["pc_maxes"].end());
+    } catch (json::exception &e) {
+        std::cout << "Could not parse pc_maxes as array of floats: " << e.what() << std::endl;
+        return false;
+    }
+
+    pcs.clear();
+    try {
+        for (std::vector<float> pc : parameter_value["pcs"]) {
+            if (pc.size() != expected_pc_vector_samples) {
+                std::cout << "Invalid PC vector length given. Need length " << expected_pc_vector_samples << std::endl;
+                return false;
+            }
+            pcs.push_back(pc);
+        }
+    } catch (json::exception &e) {
+        std::cout << "Could not parse pcs as array of array of floats: " << e.what() << std::endl;
+        return false;
+    }
+
+    if (num_pcs < 2) {
+        std::cout << "Invalid number of PCs given. " << num_pcs << std::endl;
+        return false;
+    }
+
+    // Only accept the results if it populated these fully!
+    if (is_populated()) {
+        std::cout << "Parsed new PCA results: " << (std::string) *this << std::endl;
+        return true;
+    }
+    return false;
 }
