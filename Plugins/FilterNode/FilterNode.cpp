@@ -205,6 +205,11 @@ double FilterNode::getHighCutValueForChannel (int chan) const
     return highCuts[chan];
 }
 
+int FilterNode::getOrderValueForChannel (int chan) const
+{
+    return orders[chan];
+}
+
 
 bool FilterNode::getBypassStatusForChannel (int chan) const
 {
@@ -253,8 +258,7 @@ void FilterNode::setParameter (int parameterIndex, float newValue)
         editor->updateParameterButtons (parameterIndex);
     }
     // change channel bypass state
-    else
-    {
+    else if (parameterIndex == FilterNode::PARAMETER_INDEX_ENABLE) {
         if (newValue == 0)
         {
             shouldFilterChannel.set (currentChannel, false);

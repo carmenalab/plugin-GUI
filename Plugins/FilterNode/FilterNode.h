@@ -40,6 +40,7 @@ public:
     static const int PARAMETER_INDEX_HIGH_CUT = 1;
     static const int PARAMETER_INDEX_LOW_CUT = 2;
     static const int PARAMETER_INDEX_ORDER = 3;
+    static const int PARAMETER_INDEX_ENABLE = 4;
     static const int MAX_ORDER = 10; // max filter order allowed
     constexpr static double MAX_FREQUENCY = 20000.0; // maximum frequency allowed for either lowcut/highcut
 
@@ -59,8 +60,9 @@ public:
     void saveCustomChannelParametersToXml(XmlElement* channelInfo, int channelNumber, InfoObjectCommon::InfoObjectType channelTypel) override;
     void loadCustomChannelParametersFromXml(XmlElement* channelInfo, InfoObjectCommon::InfoObjectType channelType)  override;
 
-    double getLowCutValueForChannel  (int chan) const;
-    double getHighCutValueForChannel (int chan) const;
+    double getLowCutValueForChannel(int chan) const;
+    double getHighCutValueForChannel(int chan) const;
+    int getOrderValueForChannel(int chan) const;
 
     bool getBypassStatusForChannel (int chan) const;
 
