@@ -181,8 +181,9 @@ void FilterEditor::labelTextChanged(Label* label)
             }
 
             lastLowCutString = label->getText();
-        } else {
+        } else if (label == orderValue) {
             if (requestedValue > 0 && roundDoubleToInt(requestedValue) <= FilterNode::MAX_ORDER) {
+                fn->setCurrentChannel(chans[n]);
                 fn->setParameter(FilterNode::PARAMETER_INDEX_ORDER, requestedValue);
                 lastOrderString = label->getText();
             } else {
@@ -200,8 +201,8 @@ void FilterEditor::channelChanged (int channel, bool /*newState*/)
 
     highCutValue->setText (String (fn->getHighCutValueForChannel (channel)), dontSendNotification);
     lowCutValue->setText  (String (fn->getLowCutValueForChannel  (channel)), dontSendNotification);
+    orderValue->setText  (String (fn->getOrderValueForChannel(channel)), dontSendNotification);
     applyFilterOnChan->setToggleState (fn->getBypassStatusForChannel (channel), dontSendNotification);
-
 }
 
 void FilterEditor::buttonEvent(Button* button)
@@ -224,7 +225,7 @@ void FilterEditor::buttonEvent(Button* button)
             float newValue = button->getToggleState() ? 1.0 : 0.0;
 
             fn->setCurrentChannel(chans[n]);
-            fn->setParameter(2, newValue);
+            fn->setParameter(FilterNode::PARAMETER_INDEX_ENABLE, newValue);
         }
     }
 }
@@ -237,10 +238,12 @@ void FilterEditor::saveCustomParameters(XmlElement* xml)
 
     lastHighCutString = highCutValue->getText();
     lastLowCutString = lowCutValue->getText();
+    lastOrderString = orderValue->getText();
 
     XmlElement* textLabelValues = xml->createNewChildElement("VALUES");
     textLabelValues->setAttribute("HighCut",lastHighCutString);
-    textLabelValues->setAttribute("LowCut",lastLowCutString);
+    textLabelValues->setAttribute("LowCut", lastLowCutString);
+    textLabelValues->setAttribute("Order", lastOrderString);
     textLabelValues->setAttribute("ApplyToADC",	applyFilterOnADC->getToggleState());
 }
 
@@ -253,6 +256,7 @@ void FilterEditor::loadCustomParameters(XmlElement* xml)
         {
             lastHighCutString = xmlNode->getStringAttribute("HighCut", lastHighCutString);
             lastLowCutString = xmlNode->getStringAttribute("LowCut", lastLowCutString);
+            lastOrderString = xmlNode->getStringAttribute("Order", lastOrderString);
             resetToSavedText();
 
             applyFilterOnADC->setToggleState(xmlNode->getBoolAttribute("ApplyToADC",false), sendNotification);
