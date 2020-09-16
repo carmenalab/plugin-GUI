@@ -45,11 +45,30 @@ ChannelMappingNode::ChannelMappingNode()
     {
         referenceChannels.set (i, -1);
     }
+
+    prb_json_parameter = new Parameter(
+            "prb_json",
+            juce::String::empty,
+            0,
+            true);
+    prb_json_parameter->addListener(this);
+
+    parameters.add(prb_json_parameter);
 }
 
 
 ChannelMappingNode::~ChannelMappingNode()
 {
+}
+
+void ChannelMappingNode::parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) {
+    ChannelMappingEditor *cm_editor = (ChannelMappingEditor *) editor.get();
+    auto contents = prb_json_parameter->getValue(0).toString();
+    const MessageManagerLock mm;
+    const String error_message = cm_editor->loadPrbFileContents(contents);
+    if (!error_message.isEmpty()) {
+        CoreServices::sendStatusMessage(error_message);
+    }
 }
 
 
@@ -95,6 +114,10 @@ void ChannelMappingNode::updateSettings()
         {
             dataChannelArray[i]->setRecordState (recordStates[i]);
         }
+
+        // Ensure the API parameter stays in sync with the editor's settings (e.g. if a file is uploaded via GUI).
+        ChannelMappingEditor *cm_editor = (ChannelMappingEditor *) editor.get();
+        prb_json_parameter->setValue(var(cm_editor->dumpPrbFileContents()), 0);
     }
 }
 

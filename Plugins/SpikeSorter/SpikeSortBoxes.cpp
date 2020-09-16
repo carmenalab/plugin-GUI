@@ -949,9 +949,12 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
     else
     {
         // add a spike object to the buffer.
-        // if we have enough spikes, start the PCA computation thread.
+        // Trigger the PCA job either when the buffer is full or when we received a manual "click" of the Re-PCA button.
+        // Ensure that we don't trigger multiple jobs at the same time by always considering boolean flags.
         bool spikeBufferFull = spikeBufferIndex == bufferSize - 1;
-        if (bShouldPCA && ((spikeBufferFull && !bPCAcomputed && !bPCAJobSubmitted) || bRePCA)) {
+        bool hasAnySpikes = spikeBufferIndex > 0;
+        bool shouldTriggerJob = bShouldPCA && (spikeBufferFull || (bRePCA && hasAnySpikes));
+        if (shouldTriggerJob && !bPCAcomputed && !bPCAJobSubmitted) {
             bPCAJobSubmitted = true;
             bPCAcomputed = false;
             bRePCA = false;
@@ -960,6 +963,7 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
             computingThread->addPCAjob(job);
         }
     }
+
 }
 
 void SpikeSortBoxes::getPCArange(int pc_idx, float& min,float& max)
@@ -1001,12 +1005,10 @@ void SpikeSortBoxes::RePCA()
 }
 
 void SpikeSortBoxes::DisablePeriodicPCA() {
-    bRePCA = false;
     bShouldPCA = false;
 }
 
 void SpikeSortBoxes::EnablePeriodicPCA() {
-    bRePCA = true;
     bShouldPCA = true;
 }
 
@@ -2131,8 +2133,10 @@ void PCAjob::computeCov()
         for (int i=0; i<spikes.size(); i++)
         {
             SorterSpikePtr spike = spikes[i];
-            float v = spikeDataIndexToMicrovolts(spike, j) ;
-            mean[j] += v / dim;
+            if (spike) {
+                float v = spikeDataIndexToMicrovolts(spike, j) ;
+                mean[j] += v / dim;
+            }
         }
     }
     // aggregate
@@ -2146,11 +2150,12 @@ void PCAjob::computeCov()
             float sum = 0 ;
             for (int k=0; k<spikes.size(); k++)
             {
-
                 SorterSpikePtr spike = spikes[k];
-                float vi = spikeDataIndexToMicrovolts(spike, i);
-                float vj = spikeDataIndexToMicrovolts(spike, j);
-                sum += (vi-mean[i]) * (vj-mean[j]);
+                if (spike) {
+                    float vi = spikeDataIndexToMicrovolts(spike, i);
+                    float vj = spikeDataIndexToMicrovolts(spike, j);
+                    sum += (vi-mean[i]) * (vj-mean[j]);
+                }
             }
             cov[i][j] = sum / (dim-1);
             cov[j][i] = sum / (dim-1);
@@ -2233,6 +2238,10 @@ void PCAjob::computeSVD()
         float min = 1e10;
         float max = -1e10;
         for (auto spike : spikes) {
+            if (!spike) {
+                continue;
+            }
+
             float sum = 0;
             for (int k = 0; k < dim; k++) {
                 sum += spikeDataIndexToMicrovolts(spike, k) * results_->pcs[pc_idx][k];

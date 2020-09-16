@@ -924,10 +924,20 @@ int ChannelMappingEditor::getChannelDisplayNumber(int chan) const
 
 String ChannelMappingEditor::writePrbFile(File filename)
 {
-
+    String dumped = dumpPrbFileContents();
     FileOutputStream outputStream(filename);
+    outputStream.setPosition(0);
+    outputStream.truncate();
+    outputStream.writeString(dumped);
+
+    return "Saved " + filename.getFileName();
+}
+
+String ChannelMappingEditor::dumpPrbFileContents()
+{
+
+    MemoryOutputStream outputStream;
 	outputStream.setPosition(0);
-	outputStream.truncate();
     //outputStream.writeString("channel_groups = ");
 
     info = new DynamicObject();
@@ -979,15 +989,23 @@ String ChannelMappingEditor::writePrbFile(File filename)
 
     info->writeAsJSON(outputStream, 2, false);
 
-    return "Saved " + filename.getFileName();
-
+    return outputStream.toString();
 }
 
 String ChannelMappingEditor::loadPrbFile(File filename)
 {
     FileInputStream inputStream(filename);
+    String error_message = loadPrbFileContents(inputStream.readEntireStreamAsString());
+    if (error_message.isEmpty()) {
+        return "Loaded " + filename.getFileName();
+    } else {
+        return error_message;
+    }
+}
 
-    var json = JSON::parse(inputStream);
+String ChannelMappingEditor::loadPrbFileContents(String fileContents)
+{
+    var json = JSON::parse(fileContents);
 
     var returnVal = -255;
 
@@ -1073,6 +1091,6 @@ String ChannelMappingEditor::loadPrbFile(File filename)
 		channelSelector->setRecordStatus(i,recEnabled);
 	}
 
-    return "Loaded " + filename.getFileName();
-
+	// Empty string == no error message => success
+    return "";
 }

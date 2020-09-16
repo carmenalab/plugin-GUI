@@ -70,6 +70,9 @@ public:
     String writePrbFile(File filename);
     String loadPrbFile(File filename);
 
+    String loadPrbFileContents(String fileContents);
+    String dumpPrbFileContents();
+
 private:
 
     void setChannelReference(ElectrodeButton* button);
