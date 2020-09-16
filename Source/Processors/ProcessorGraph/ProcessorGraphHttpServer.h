@@ -93,7 +93,7 @@ public:
             ret["parameters"] = parameters_json;
             res.set_content(ret.dump(), "application/json");
         });
-        svr_->Get(R"(/api/processors/([0-9]+)/parameters/([A-Za-z0-9_]+))",
+        svr_->Get(R"(/api/processors/([0-9]+)/parameters/([A-Za-z0-9_\.\-]+))",
                  [this](const httplib::Request &req, httplib::Response &res) {
                      auto processor = find_processor(req.matches[1]);
                      if (processor == nullptr) {
@@ -111,7 +111,7 @@ public:
                      parameter_to_json(parameter, &ret);
                      res.set_content(ret.dump(), "application/json");
                  });
-        svr_->Put(R"(/api/processors/([0-9]+)/parameters/([A-Za-z0-9_]+))",
+        svr_->Put(R"(/api/processors/([0-9]+)/parameters/([A-Za-z0-9_\.\-]+))",
                  [this](const httplib::Request &req, httplib::Response &res) {
                      auto processor = find_processor(req.matches[1]);
                      if (processor == nullptr) {

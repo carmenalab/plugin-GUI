@@ -26,38 +26,31 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "SpikeSortBoxes.h"
 #include "SpikeSorter.h"
 #include <nlohmann/json.hpp>
+#include <cmath>
 
 using json = nlohmann::json;
 
-PointD::PointD()
-{
-    X = Y = 0;
-}
-
-
-PointD::PointD(float x, float y)
-{
-    X = x;
-    Y = y;
-}
-
-PointD::PointD(const PointD& P)
-{
-    X = P.X;
-    Y = P.Y;
+PointD::PointD() : PointD(0.0, 0.0) {}
+PointD::PointD(float x, float y) : PointD(std::vector<float>({x, y})) {}
+PointD::PointD(const PointD& P) : PointD(P.dims_) {}
+PointD::PointD(const std::vector<float> &dims) {
+    dims_ = dims;
 }
 
 PointD& PointD::operator+=(const PointD& rhs)
 {
-    X += rhs.X;
-    Y += rhs.Y;
+    jassert(dims_.size() == rhs.dims_.size());
+    for (int i = 0; i < dims_.size(); i++) {
+        dims_[i] += rhs.dims_[i];
+    }
     return *this;
 }
 
 PointD& PointD::operator-=(const PointD& rhs)
 {
-    X -= rhs.X;
-    Y -= rhs.Y;
+    for (int i = 0; i < dims_.size(); i++) {
+        dims_[i] -= rhs.dims_[i];
+    }
     return *this;
 }
 
@@ -80,15 +73,22 @@ const PointD PointD::operator-(const PointD& other) const
 const PointD PointD::operator*(const PointD& other) const
 {
     PointD result = *this;
-    result.X *= other.X;
-    result.Y *= other.Y;
+    for (int i = 0; i < result.dims_.size(); i++) {
+        result.dims_[i] *= other.dims_[i];
+    }
     return result;
 
 }
 
 float PointD::cross(PointD c) const
 {
-    return X*c.Y-Y*c.X;
+    jassert(dims_.size() == c.dims_.size());
+    jassert(dims_.size() == 2);
+    return dims_[0] * c[1] - dims_[1] * c[0];
+}
+
+float PointD::operator[](int index) const {
+    return dims_[index];
 }
 
 /**************************************/
@@ -324,8 +324,8 @@ void BoxUnit::setBox(int boxid, Box B)
 
 void BoxUnit::setBoxPos(int boxid, PointD P)
 {
-    lstBoxes[boxid].x = P.X;
-    lstBoxes[boxid].y = P.Y;
+    lstBoxes[boxid].x = P[0];
+    lstBoxes[boxid].y = P[1];
 }
 
 void BoxUnit::setBoxSize(int boxid, double W, double H)
@@ -600,7 +600,7 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator *uniqueIDgenerator_,
                                int numch,
                                double SamplingRate,
                                int WaveFormLength,
-                               Parameter *parameter) {
+                               Parameter *pca_parameter) {
     uniqueIDgenerator = uniqueIDgenerator_;
     computingThread = pth;
     bufferSize = 200;
@@ -614,31 +614,40 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator *uniqueIDgenerator_,
     numChannels = numch;
     waveformLength = WaveFormLength;
 
-    parameter_ = parameter;
-    pca_results_.num_pcs = 2;
+    pca_parameter_ = pca_parameter;
+
+    // Sane default for now.
+    pca_sorting_.results.num_pcs = 2;
 
     for (int n = 0; n < bufferSize; n++)
     {
         spikeBuffer.add(nullptr);
     }
 
-    parameter_->addListener(this);
+    pca_parameter_->addListener(this);
+    synchronizePCAParameter();
+}
+
+void SpikeSortBoxes::synchronizePCAParameter() {
+    pca_parameter_->setValue(pca_sorting_.ToValue(), 0);
 }
 
 void SpikeSortBoxes::parameterValueChanged(Value &valueThatWasChanged) {
-    if (parameter_->getNumChannels() != 1) {
+    if (pca_parameter_->getNumChannels() != 1) {
         // Something invalid? Only one channel supported.
         return;
     }
 
-    juce::String parameter_value_str = parameter_->getValue(0).toString();
+    juce::String parameter_value_str = pca_parameter_->getValue(0).toString();
 
-    PCAResults new_results;
-    bool success = new_results.FromValue(Value(parameter_->getValue(0)), numChannels * waveformLength);
-    if (!success) {
-        return;
+    PCASorting new_sorting;
+    bool success = new_sorting.FromValue(Value(pca_parameter_->getValue(0)), numChannels * waveformLength);
+    if (success) {
+        pca_sorting_ = new_sorting;
     }
-    pca_results_ = new_results;
+    // In case the parameter was invalid or was otherwise unable to construct sorting, ensure the parameter is in
+    // sync with the "real".
+    synchronizePCAParameter();
 }
 
 void SpikeSortBoxes::resizeWaveform(int numSamples)
@@ -646,7 +655,7 @@ void SpikeSortBoxes::resizeWaveform(int numSamples)
     const ScopedLock myScopedLock(mut);
 
     waveformLength = numSamples;
-    pca_results_.clear();
+    pca_sorting_.results.clear();
     spikeBuffer.clear();
     for (int n = 0; n < bufferSize; n++)
     {
@@ -660,14 +669,15 @@ void SpikeSortBoxes::resizeWaveform(int numSamples)
 	selectedBox = -1;
 	bRePCA = false;
 
-    for (int k=0; k<pcaUnits.size(); k++)
-    {
-        pcaUnits[k].resizeWaveform(waveformLength);
-    }
+	for (auto &pcaUnit : pca_sorting_.units) {
+	    pcaUnit.resizeWaveform(waveformLength);
+	}
     for (int k=0; k<boxUnits.size(); k++)
     {
         boxUnits[k].resizeWaveform(waveformLength);
     }
+
+    synchronizePCAParameter();
 }
 
 
@@ -684,8 +694,10 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
             selectedUnit  = spikesortNode->getIntAttribute("selectedUnit");
             selectedBox =  spikesortNode->getIntAttribute("selectedBox");
 
+            pca_sorting_ = PCASorting();
+            PCAResults &pca_results = pca_sorting_.results;
+            std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
 
-            pcaUnits.clear();
             boxUnits.clear();
 
             forEachXmlChildElement(*spikesortNode, UnitNode)
@@ -697,19 +709,18 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                     bPCAjobFinished = UnitNode->getBoolAttribute("PCAjobFinished");
                     bPCAcomputed = UnitNode->getBoolAttribute("PCAcomputed");
 
-                    pca_results_.clear();
-                    pca_results_.num_pcs = UnitNode->getIntAttribute("numPCs", 2);
+                    pca_results.num_pcs = UnitNode->getIntAttribute("numPCs", 2);
 
                     bool is_old_style_pcs = false;
                     if (UnitNode->hasAttribute("pc1min")) {
                         // "Old" style with 2 hardcoded PCs, detected by presence of "old" tag
-                        jassert(pca_results_.num_pcs == 2);
+                        jassert(pca_results.num_pcs == 2);
                         is_old_style_pcs = true;
-                        pca_results_.pc_mins.push_back(UnitNode->getDoubleAttribute("pc1min"));
-                        pca_results_.pc_mins.push_back(UnitNode->getDoubleAttribute("pc2min"));
+                        pca_results.pc_mins.push_back(UnitNode->getDoubleAttribute("pc1min"));
+                        pca_results.pc_mins.push_back(UnitNode->getDoubleAttribute("pc2min"));
 
-                        pca_results_.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc1max"));
-                        pca_results_.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc2max"));
+                        pca_results.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc1max"));
+                        pca_results.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc2max"));
                     }
 
                     forEachXmlChildElement(*UnitNode, dimNode)
@@ -719,16 +730,16 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                         {
                             // "Old" style with 2 hardcoded PCs if it has "PCA_DIM"
                             jassert(is_old_style_pcs);
-                            if (pca_results_.pcs.empty()) {
-                                pca_results_.pcs.emplace_back();
-                                pca_results_.pcs.emplace_back();
+                            if (pca_results.pcs.empty()) {
+                                pca_results.pcs.emplace_back();
+                                pca_results.pcs.emplace_back();
                             }
-                            pca_results_.pcs[0].push_back(dimNode->getDoubleAttribute("pc1"));
-                            pca_results_.pcs[1].push_back(dimNode->getDoubleAttribute("pc2"));
+                            pca_results.pcs[0].push_back(dimNode->getDoubleAttribute("pc1"));
+                            pca_results.pcs[1].push_back(dimNode->getDoubleAttribute("pc2"));
                         } else if (dimNode->hasTagName("PC")) {
                             jassert(!is_old_style_pcs);
-                            pca_results_.pc_maxes.push_back(dimNode->getDoubleAttribute("max_projection"));
-                            pca_results_.pc_mins.push_back(dimNode->getDoubleAttribute("min_projection"));
+                            pca_results.pc_maxes.push_back(dimNode->getDoubleAttribute("max_projection"));
+                            pca_results.pc_mins.push_back(dimNode->getDoubleAttribute("min_projection"));
                             std::vector<float> pc_vector;
                             forEachXmlChildElement(*dimNode, pc_element_node)
                             {
@@ -736,15 +747,14 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                                     pc_vector.push_back(pc_element_node->getDoubleAttribute("value"));
                                 }
                             }
-                            pca_results_.pcs.push_back(pc_vector);
+                            pca_results.pcs.push_back(pc_vector);
                         }
                     }
 
                     // If any of the dimensions across the various PC fields mismatch, then start fresh.
-                    if (!pca_results_.is_populated()) {
-                        pca_results_.clear();
+                    if (!pca_results.is_populated()) {
+                        pca_results.clear();
                     }
-                    parameter_->setValue(pca_results_.ToValue(), 0);
                 }
 
                 if (UnitNode->hasTagName("BOXUNIT"))
@@ -783,17 +793,21 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                     pcaUnit.ColorRGB[2] = UnitNode->getIntAttribute("ColorB");
 
                     int numPolygonPoints = UnitNode->getIntAttribute("PolygonNumPoints");
-                    pcaUnit.poly.pts.resize(numPolygonPoints);
-                    pcaUnit.poly.offset.X = UnitNode->getDoubleAttribute("PolygonOffsetX");
-                    pcaUnit.poly.offset.Y = UnitNode->getDoubleAttribute("PolygonOffsetY");
+                    pcaUnit.poly = std::make_shared<cPolygon>();
+                    std::vector<PointD> &pts = pcaUnit.poly->pts();
+                    pts.resize(numPolygonPoints);
+
+                    PointD &offset = pcaUnit.poly->offset();
+                    offset.set({UnitNode->getDoubleAttribute("PolygonOffsetX"),
+                                UnitNode->getDoubleAttribute("PolygonOffsetY")});
                     // read polygon
                     int pointCounter = 0;
                     forEachXmlChildElement(*UnitNode, polygonPoint)
                     {
                         if (polygonPoint->hasTagName("POLYGON_POINT"))
                         {
-                            pcaUnit.poly.pts[pointCounter].X =  polygonPoint->getDoubleAttribute("pointX");
-                            pcaUnit.poly.pts[pointCounter].Y =  polygonPoint->getDoubleAttribute("pointY");
+                            pts[pointCounter].set({polygonPoint->getDoubleAttribute("pointX"),
+                                                   polygonPoint->getDoubleAttribute("pointY")});
                             pointCounter++;
                         }
                     }
@@ -803,10 +817,15 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
             }
         }
     }
+
+    synchronizePCAParameter();
 }
 
 void SpikeSortBoxes::saveCustomParametersToXml(XmlElement* electrodeNode)
 {
+
+    const std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
+    const PCAResults &results = pca_sorting_.results;
 
     XmlElement* spikesortNode = electrodeNode->createNewChildElement("SPIKESORTING");
     spikesortNode->setAttribute("numBoxUnits", (int)boxUnits.size());
@@ -820,15 +839,15 @@ void SpikeSortBoxes::saveCustomParametersToXml(XmlElement* electrodeNode)
     pcaNode->setAttribute("waveformLength",waveformLength);
     pcaNode->setAttribute("PCAjobFinished", bPCAjobFinished);
     pcaNode->setAttribute("PCAcomputed", bPCAcomputed);
-    pcaNode->setAttribute("numPCs", pca_results_.num_pcs);
+    pcaNode->setAttribute("numPCs", results.num_pcs);
 
-    if (pca_results_.is_populated()) {
-        for (int pc_idx = 0; pc_idx < pca_results_.num_pcs; pc_idx++) {
+    if (results.is_populated()) {
+        for (int pc_idx = 0; pc_idx < results.num_pcs; pc_idx++) {
             XmlElement* pc = pcaNode->createNewChildElement("PC");
-            pc->setAttribute("min_projection", pca_results_.pc_mins[pc_idx]);
-            pc->setAttribute("max_projection", pca_results_.pc_maxes[pc_idx]);
+            pc->setAttribute("min_projection", results.pc_mins[pc_idx]);
+            pc->setAttribute("max_projection", results.pc_maxes[pc_idx]);
 
-            auto pc_vector = pca_results_.pcs[pc_idx];
+            auto pc_vector = results.pcs[pc_idx];
             for (float k : pc_vector) {
                 XmlElement *pc_element = pc->createNewChildElement("PC_ELEMENT");
                 pc_element->setAttribute("value", k);
@@ -858,21 +877,29 @@ void SpikeSortBoxes::saveCustomParametersToXml(XmlElement* electrodeNode)
 
     for (int pcaUnitIter=0; pcaUnitIter<pcaUnits.size(); pcaUnitIter++)
     {
+        const PCAUnit &pcaUnit = pcaUnits[pcaUnitIter];
+        if (!pcaUnit.poly->CanSerializeToXml()) {
+            continue;
+        }
+
         XmlElement* PcaUnitNode = spikesortNode->createNewChildElement("PCAUNIT");
 
-        PcaUnitNode->setAttribute("UnitID",pcaUnits[pcaUnitIter].UnitID);
-        PcaUnitNode->setAttribute("ColorR",pcaUnits[pcaUnitIter].ColorRGB[0]);
-        PcaUnitNode->setAttribute("ColorG",pcaUnits[pcaUnitIter].ColorRGB[1]);
-        PcaUnitNode->setAttribute("ColorB",pcaUnits[pcaUnitIter].ColorRGB[2]);
-        PcaUnitNode->setAttribute("PolygonNumPoints",(int)pcaUnits[pcaUnitIter].poly.pts.size());
-        PcaUnitNode->setAttribute("PolygonOffsetX",(int)pcaUnits[pcaUnitIter].poly.offset.X);
-        PcaUnitNode->setAttribute("PolygonOffsetY",(int)pcaUnits[pcaUnitIter].poly.offset.Y);
+        PcaUnitNode->setAttribute("UnitID", pcaUnit.UnitID);
+        PcaUnitNode->setAttribute("ColorR", pcaUnit.ColorRGB[0]);
+        PcaUnitNode->setAttribute("ColorG", pcaUnit.ColorRGB[1]);
+        PcaUnitNode->setAttribute("ColorB", pcaUnit.ColorRGB[2]);
+        std::vector<PointD> &pts = pcaUnit.poly->pts();
+        PointD &offset = pcaUnit.poly->offset();
 
-        for (int p=0; p<pcaUnits[pcaUnitIter].poly.pts.size(); p++)
+        PcaUnitNode->setAttribute("PolygonNumPoints", (int) pts.size());
+        PcaUnitNode->setAttribute("PolygonOffsetX", (int) offset[0]);
+        PcaUnitNode->setAttribute("PolygonOffsetY",(int) offset[1]);
+
+        for (int p=0; p < pts.size(); p++)
         {
             XmlElement* PolygonNode = PcaUnitNode->createNewChildElement("POLYGON_POINT");
-            PolygonNode->setAttribute("pointX", pcaUnits[pcaUnitIter].poly.pts[p].X);
-            PolygonNode->setAttribute("pointY", pcaUnits[pcaUnitIter].poly.pts[p].Y);
+            PolygonNode->setAttribute("pointX", pts[p][0]);
+            PolygonNode->setAttribute("pointY", pts[p][1]);
         }
     }
 
@@ -901,20 +928,21 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
     spikeBuffer.set(spikeBufferIndex, so);
     if (bPCAjobFinished)
     {
-        // pca_results_ have been updated by the PCA job, so ensure the parameter is updated too:
-        parameter_->setValue(pca_results_.ToValue(), 0);
+        // PCA results have been updated by the PCA job, so ensure the parameter is updated too:
+        synchronizePCAParameter();
         bPCAcomputed = true;
     }
 
     if (bPCAcomputed)
     {
         so->pcProj.clear();
-        so->pcProj.resize(pca_results_.num_pcs, 0.0);
-        for (int pc_idx = 0; pc_idx < pca_results_.num_pcs; pc_idx++) {
+        int num_pcs = pca_sorting_.results.num_pcs;
+        so->pcProj.resize(num_pcs, 0.0);
+        for (int pc_idx = 0; pc_idx < pca_sorting_.results.num_pcs; pc_idx++) {
             for (int k=0; k<so->getChannel()->getNumChannels()*so->getChannel()->getTotalSamples(); k++)
             {
                 float v = spikeDataIndexToMicrovolts(so, k);
-                so->pcProj[pc_idx] += pca_results_.pcs[pc_idx][k]* v;
+                so->pcProj[pc_idx] += pca_sorting_.results.pcs[pc_idx][k]* v;
             }
         }
     }
@@ -928,7 +956,7 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
             bPCAcomputed = false;
             bRePCA = false;
             // submit a new job to compute the spike buffer.
-            PCAJobPtr job = new PCAjob(spikeBuffer, &pca_results_, bPCAjobFinished);
+            PCAJobPtr job = new PCAjob(spikeBuffer, &pca_sorting_.results, bPCAjobFinished);
             computingThread->addPCAjob(job);
         }
     }
@@ -936,22 +964,24 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
 
 void SpikeSortBoxes::getPCArange(int pc_idx, float& min,float& max)
 {
-    if (pca_results_.pc_mins.size() <= pc_idx || pca_results_.pc_maxes.size() <= pc_idx) {
+    PCAResults &results = pca_sorting_.results;
+    if (results.pc_mins.size() <= pc_idx || results.pc_maxes.size() <= pc_idx) {
         min = -1.0;
         max = 1.0;
     } else {
-        min = pca_results_.pc_mins[pc_idx];
-        max = pca_results_.pc_maxes[pc_idx];
+        min = results.pc_mins[pc_idx];
+        max = results.pc_maxes[pc_idx];
     }
 }
 
 void SpikeSortBoxes::setPCArange(int pc_idx, float min,float max)
 {
-    if (pca_results_.pc_mins.size() <= pc_idx || pca_results_.pc_maxes.size() <= pc_idx) {
+    PCAResults &results = pca_sorting_.results;
+    if (results.pc_mins.size() <= pc_idx || results.pc_maxes.size() <= pc_idx) {
         return;
     }
-    pca_results_.pc_mins[pc_idx] = min;
-    pca_results_.pc_maxes[pc_idx] = max;
+    results.pc_mins[pc_idx] = min;
+    results.pc_maxes[pc_idx] = max;
 }
 
 void SpikeSortBoxes::resetJobStatus()
@@ -984,7 +1014,8 @@ void SpikeSortBoxes::addPCAunit(PCAUnit unit)
 {
     const ScopedLock myScopedLock(mut);
     //StartCriticalSection();
-    pcaUnits.push_back(unit);
+    pca_sorting_.units.push_back(unit);
+    synchronizePCAParameter();
     //EndCriticalSection();
 }
 
@@ -1036,6 +1067,7 @@ void SpikeSortBoxes::getUnitColor(int UnitID, uint8& R, uint8& G, uint8& B)
             break;
         }
     }
+    std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
     for (int k = 0; k < pcaUnits.size(); k++)
     {
         if (pcaUnits[k].getUnitID() == UnitID)
@@ -1065,6 +1097,7 @@ int SpikeSortBoxes::generateLocalID()
                 break;
             }
         }
+        std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
         for (int k = 0; k < pcaUnits.size(); k++)
         {
             if (pcaUnits[k].getLocalID() == ID)
@@ -1097,44 +1130,44 @@ void SpikeSortBoxes::generateNewIDs()
     {
         boxUnits[k].UnitID = generateUnitID();
     }
-    for (int k=0; k<pcaUnits.size(); k++)
+    for (int k=0; k<pca_sorting_.units.size(); k++)
     {
-        pcaUnits[k].UnitID = generateUnitID();
+        pca_sorting_.units[k].UnitID = generateUnitID();
     }
+    synchronizePCAParameter();
 }
 
 void SpikeSortBoxes::removeAllUnits()
 {
     const ScopedLock myScopedLock(mut);
     boxUnits.clear();
-    pcaUnits.clear();
+    pca_sorting_.units.clear();
+    synchronizePCAParameter();
 }
 
 bool SpikeSortBoxes::removeUnit(int unitID)
 {
     const ScopedLock myScopedLock(mut);
-    //StartCriticalSection();
     for (int k=0; k<boxUnits.size(); k++)
     {
         if (boxUnits[k].getUnitID() == unitID)
         {
             boxUnits.erase(boxUnits.begin()+k);
-            //EndCriticalSection();
             return true;
         }
     }
 
-    for (int k=0; k<pcaUnits.size(); k++)
+    std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
+    for (int k=0; k < pcaUnits.size(); k++)
     {
         if (pcaUnits[k].getUnitID() == unitID)
         {
-            pcaUnits.erase(pcaUnits.begin()+k);
-            //EndCriticalSection();
+            pcaUnits.erase(pcaUnits.begin() + k);
+            synchronizePCAParameter();
             return true;
         }
     }
 
-    // EndCriticalSection();
     return false;
 
 }
@@ -1193,27 +1226,21 @@ std::vector<BoxUnit> SpikeSortBoxes::getBoxUnits()
 
 std::vector<PCAUnit> SpikeSortBoxes::getPCAUnits()
 {
-    //StartCriticalSection();
     const ScopedLock myScopedLock(mut);
-    std::vector<PCAUnit> unitsCopy = pcaUnits;
-    //EndCriticalSection();
-    return unitsCopy;
+    return pca_sorting_.units;
 }
 
 void SpikeSortBoxes::updatePCAUnits(std::vector<PCAUnit> _units)
 {
-    //StartCriticalSection();
     const ScopedLock myScopedLock(mut);
-    pcaUnits = _units;
-    //EndCriticalSection();
+    pca_sorting_.units = _units;
+    synchronizePCAParameter();
 }
 
 void SpikeSortBoxes::updateBoxUnits(std::vector<BoxUnit> _units)
 {
     const ScopedLock myScopedLock(mut);
-    //StartCriticalSection();
     boxUnits = _units;
-    //EndCriticalSection();
 }
 
 
@@ -1223,10 +1250,11 @@ void SpikeSortBoxes::updateBoxUnits(std::vector<BoxUnit> _units)
 bool SpikeSortBoxes::sortSpike(SorterSpikePtr so, bool PCAfirst)
 {
     const ScopedLock myScopedLock(mut);
+
+    std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
     if (PCAfirst)
     {
-
-        for (int k=0; k<pcaUnits.size(); k++)
+        for (int k=0; k < pcaUnits.size(); k++)
         {
             if (pcaUnits[k].isWaveFormInsidePolygon(so))
             {
@@ -1639,28 +1667,28 @@ int SpikeSortBoxes::getNumBoxes(int unitID)
 
 /**************************/
 
-cPolygon::cPolygon()
-{
-};
 
-bool cPolygon::isPointInside(PointD p)
+bool cPolygon::isPointInside(PointD p) const
 {
     PointD p1, p2;
 
     bool inside = false;
 
-    if (pts.size() < 3)
+    if (pts_.size() < 3)
     {
         return inside;
     }
 
-    PointD oldPoint(pts[pts.size()- 1].X + offset.X, pts[pts.size()- 1].Y + offset.Y);
+    float offset_x = offset_[0];
+    float offset_y = offset_[1];
 
-    for (int i = 0; i < pts.size(); i++)
+    PointD oldPoint(pts_[pts_.size() - 1][0] + offset_x, pts_[pts_.size() - 1][1] + offset_y);
+
+    for (int i = 0; i < pts_.size(); i++)
     {
-        PointD newPoint(pts[i].X + offset.X, pts[i].Y + offset.Y);
+        PointD newPoint(pts_[i][0] + offset_x, pts_[i][1] + offset_y);
 
-        if (newPoint.X > oldPoint.X)
+        if (newPoint[0] > oldPoint[0])
         {
             p1 = oldPoint;
             p2 = newPoint;
@@ -1671,9 +1699,8 @@ bool cPolygon::isPointInside(PointD p)
             p2 = oldPoint;
         }
 
-        if ((newPoint.X < p.X) == (p.X <= oldPoint.X)
-            && ((p.Y - p1.Y) * (p2.X - p1.X)	< (p2.Y - p1.Y) * (p.X - p1.X)))
-        {
+        if ((newPoint[0] < p[0]) == (p[0] <= oldPoint[0])
+            && ((p[1] - p1[1]) * (p2[0] - p1[0]) < (p2[1] - p1[1]) * (p[0] - p1[0]))) {
             inside = !inside;
         }
 
@@ -1684,6 +1711,33 @@ bool cPolygon::isPointInside(PointD p)
 }
 
 
+json cPolygon::ToJson() const {
+    json ret;
+    ret["type"] = "POLYGON";
+    for (const auto &pt: pts_) {
+        json pt_json = pt.dims();
+        ret["points"].push_back(pt_json);
+    }
+    return ret;
+}
+
+bool cPolygon::FromJson(const json &value) {
+    if (!value.contains("type") || !value.contains("points") || !value["points"].is_array()) {
+        return false;
+    }
+    if (value["type"].get<std::string>() != "POLYGON") {
+        return false;
+    }
+    pts_.clear();
+    try {
+        for (const auto& pt_json : value["points"]) {
+            pts_.emplace_back(pt_json.get<std::vector<float>>());
+        }
+    } catch (json::exception &) {
+        return false;
+    }
+    return true;
+}
 
 
 
@@ -1697,7 +1751,6 @@ bool cPolygon::isPointInside(PointD p)
 /*************************/
 PCAUnit::PCAUnit()
 {
-
 }
 
 PCAUnit::PCAUnit(int ID, int localID_): UnitID(ID),localID(localID_)
@@ -1707,11 +1760,6 @@ PCAUnit::PCAUnit(int ID, int localID_): UnitID(ID),localID(localID_)
 
 PCAUnit::~PCAUnit()
 {
-}
-
-PCAUnit::PCAUnit(cPolygon B, int ID, int localID_) : UnitID(ID), localID(localID_)
-{
-    poly = B;
 }
 
 int PCAUnit::getUnitID()
@@ -1725,13 +1773,13 @@ int PCAUnit::getLocalID()
 
 bool PCAUnit::isPointInsidePolygon(PointD p)
 {
-    return poly.isPointInside(p);
+    return poly->isPointInside(p);
 }
 
 bool PCAUnit::isWaveFormInsidePolygon(SorterSpikePtr so)
 {
     // Only support 2D projections with these "hand-drawn" polygons
-    return poly.isPointInside(PointD(so->pcProj[0],so->pcProj[1]));
+    return poly->isPointInside(PointD(so->pcProj[0],so->pcProj[1]));
 }
 
 void PCAUnit::resizeWaveform(int newlength)
@@ -1742,6 +1790,33 @@ void PCAUnit::resizeWaveform(int newlength)
 void PCAUnit::updateWaveform(SorterSpikePtr so)
 {
     WaveformStat.update(so);
+}
+
+json PCAUnit::ToJson() const {
+    json ret;
+    ret["id"] = UnitID;
+    ret["local_id"] = localID;
+    ret["shape"] = poly->ToJson();
+    return ret;
+}
+
+bool PCAUnit::FromJson(const json &value) {
+    try {
+        UnitID = value["id"];
+        localID = value["local_id"];
+        if (value["shape"]["type"] == "POLYGON") {
+            poly = std::make_shared<cPolygon>();
+        } else if (value["shape"]["type"] == "ELLIPSE") {
+            poly = std::make_shared<cEllipse>();
+        } else {
+            std::cout << "Unhandled shape type?? " << value["shape"]["type"] << std::endl;
+            return false;
+        }
+        return poly->FromJson(value["shape"]);
+    } catch (json::exception &e) {
+        std::cout << "Could not parse json into PCA Unit. Error: " << e.what() << std::endl;
+        return false;
+    }
 }
 
 /***************************/
@@ -2295,7 +2370,7 @@ int64 SorterSpikeContainer::getTimestamp() const
 	return timestamp;
 }
 
-Value PCAResults::ToValue() const {
+json PCAResults::ToJson() const {
     json ret;
     ret["num_pcs"] = num_pcs;
     ret["pc_mins"] = pc_mins;
@@ -2303,36 +2378,26 @@ Value PCAResults::ToValue() const {
     for (const auto& pc_vec : pcs) {
         ret["pcs"].push_back(pc_vec);
     }
-    return Value(var(juce::String(ret.dump())));
+    return ret;
 }
 
-bool PCAResults::FromValue(const Value &value, const int expected_pc_vector_samples) {
-    juce::String parameter_value_str = value.toString();
-
-    json parameter_value;
+bool PCAResults::FromJson(const json &value, int expected_pc_vector_samples) {
     try {
-        parameter_value = json::parse(parameter_value_str.toStdString());
-    } catch (json::exception &e) {
-        std::cout << "Expected json in electrode parameter, but failed to parse: " << e.what() << std::endl;
-        return false;
-    }
-
-    try {
-        num_pcs = parameter_value["num_pcs"];
+        num_pcs = value["num_pcs"];
     } catch (json::exception &e) {
         std::cout << "Could not parse num_pcs as integer: " << e.what() << std::endl;
         return false;
     }
 
     try {
-        pc_mins = std::vector<float>(parameter_value["pc_mins"].begin(), parameter_value["pc_mins"].end());
+        pc_mins = std::vector<float>(value["pc_mins"].begin(), value["pc_mins"].end());
     } catch (json::exception &e) {
         std::cout << "Could not parse pc_mins as array of floats: " << e.what() << std::endl;
         return false;
     }
 
     try {
-        pc_maxes = std::vector<float>(parameter_value["pc_maxes"].begin(), parameter_value["pc_maxes"].end());
+        pc_maxes = std::vector<float>(value["pc_maxes"].begin(), value["pc_maxes"].end());
     } catch (json::exception &e) {
         std::cout << "Could not parse pc_maxes as array of floats: " << e.what() << std::endl;
         return false;
@@ -2340,7 +2405,7 @@ bool PCAResults::FromValue(const Value &value, const int expected_pc_vector_samp
 
     pcs.clear();
     try {
-        for (std::vector<float> pc : parameter_value["pcs"]) {
+        for (std::vector<float> pc : value["pcs"]) {
             if (pc.size() != expected_pc_vector_samples) {
                 std::cout << "Invalid PC vector length given. Need length " << expected_pc_vector_samples << std::endl;
                 return false;
@@ -2363,4 +2428,159 @@ bool PCAResults::FromValue(const Value &value, const int expected_pc_vector_samp
         return true;
     }
     return false;
+}
+
+cEllipse::cEllipse(const PointD &center,
+                   const std::vector<std::vector<float>> &rotation,
+                   const std::vector<float> &radii) :
+        center_(center), rotation_(rotation), radii_(radii) {
+    jassert(!rotation.empty());
+    // Rotation is NxN, radii is an Nx1 vector, and Center is an N-dim point.
+    jassert(rotation.size() == radii.size());
+    jassert(rotation.size() == center.dims().size());
+
+    n_dims = radii.size();
+
+    populate_sample_pts();
+}
+
+void cEllipse::populate_sample_pts() {
+    int n_sample_pts = 20;
+    // Create N points around a unit circle in 2D, and then transform to make them span an ellipse.
+    for (int sample_pt_idx = 0; sample_pt_idx < n_sample_pts; sample_pt_idx++) {
+        double rads = 2 * M_PI * sample_pt_idx / (double) n_sample_pts;
+        std::vector<float> dims;
+        dims.push_back(cos(rads));
+        dims.push_back(sin(rads));
+        for (int j = 2; j < n_dims; j++) {
+            dims.push_back(0);
+        }
+
+        PointD point = PointD(dims);
+
+        // Stretch according to the radii
+        point = point * radii_;
+
+        std::vector<float> rotated;
+        rotated.resize(n_dims, 0.0);
+        for (int i = 0; i < n_dims; i++) {
+            float res = 0;
+            for (int j = 0; j < n_dims; j++) {
+                res += rotation_[j][i] * point[j];
+            }
+            rotated[i] = res;
+        }
+        // Rotate...
+        point.set(rotated);
+
+        // Then translate to center of the ellipse:
+        point += center_;
+
+        sample_pts_.push_back(point);
+        for (const float dim : point.dims()) {
+            std::cout << dim << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
+bool cEllipse::isPointInside(PointD p) const {
+    PointD centered = p - center_;
+    // || rotation matrix * (pt - center) / radii ||_2 < 1?
+    double norm2 = 0;
+    for (int i = 0; i < n_dims; i++) {
+        float res = 0;
+        for (int j = 0; j < n_dims; j++) {
+            res += rotation_[i][j] * centered[j];
+        }
+        norm2 += std::pow(res / radii_[i], 2);
+    }
+
+    return norm2 < 1;
+}
+
+json cEllipse::ToJson() const {
+    json ret;
+    ret["type"] = "ELLIPSE";
+    ret["center"] = center_.dims();
+    ret["radii"] = radii_;
+
+    json rotation_json;
+    for (const auto& rotation_row : rotation_) {
+        rotation_json.push_back(rotation_row);
+    }
+    ret["rotation"] = rotation_json;
+    return ret;
+}
+
+bool cEllipse::FromJson(const json &value) {
+    if (!value.contains("type") ||
+        value["type"].get<std::string>() != "ELLIPSE" ||
+        !value.contains("center") ||
+        !value.contains("radii") ||
+        !value.contains("rotation")) {
+        return false;
+    }
+
+    rotation_.clear();
+    try {
+        for (const auto& rotation_row_json : value["rotation"]) {
+            rotation_.push_back(rotation_row_json.get<std::vector<float>>());
+        }
+    } catch (json::exception &) {
+        return false;
+    }
+
+    try {
+        center_ = PointD(value["center"].get<std::vector<float>>());
+        radii_ = value["radii"].get<std::vector<float>>();
+    } catch (json::exception &) {
+        return false;
+    }
+
+    if (center_.dims().size() != rotation_.size() || radii_.size() != rotation_.size()) {
+        return false;
+    }
+    n_dims = rotation_.size();
+    populate_sample_pts();
+    return true;
+}
+
+Value PCASorting::ToValue() const {
+    json sorting;
+    sorting["results"] = results.ToJson();
+    sorting["pca_units"] = json::array();
+    for (const auto &unit : units) {
+        sorting["pca_units"].push_back(unit.ToJson());
+    }
+    return Value(var(sorting.dump()));
+}
+
+bool PCASorting::FromValue(const Value &value, int expected_pc_vector_samples) {
+    juce::String parameter_value_str = value.toString();
+
+    json sorting;
+    try {
+        sorting = json::parse(parameter_value_str.toStdString());
+    } catch (json::exception &e) {
+        std::cout << "Expected json in electrode parameter, but failed to parse: " << e.what() << std::endl;
+        return false;
+    }
+
+    results = PCAResults();
+    bool success = results.FromJson(sorting["results"], expected_pc_vector_samples);
+    if (!success) {
+        return false;
+    }
+
+    units.clear();
+    for (const auto &unit_json : sorting["pca_units"]) {
+        PCAUnit unit;
+        success = unit.FromJson(unit_json);
+        if (!success) {
+            return false;
+        }
+        units.push_back(unit);
+    }
+    return true;
 }

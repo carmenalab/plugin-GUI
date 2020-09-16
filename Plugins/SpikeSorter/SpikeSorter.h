@@ -165,7 +165,7 @@ public:
     ~Electrode();
 
     void resizeWaveform(int numPre, int numPost);
-    Parameter *ParameterToRegister();
+    std::vector<Parameter *> ParametersToRegister();
 
     String name;
 
@@ -207,7 +207,7 @@ private:
     bool* isActive_;
     int* channels_;
     void recreate_threshold_crossing_calculator();
-    Parameter *parameter_;
+    Parameter *pca_parameter_;
 };
 
 class ContinuousCircularBuffer

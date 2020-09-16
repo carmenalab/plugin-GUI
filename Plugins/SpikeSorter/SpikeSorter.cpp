@@ -277,8 +277,9 @@ Electrode::Electrode(int ID,
     spikePlot = nullptr;
 
     std::stringstream parameter_name;
-    parameter_name << "electrode" << std::setfill('0') << std::setw(4) << ID;
-    parameter_ = new Parameter(
+    parameter_name << "electrode" << std::setfill('0') << std::setw(4) << ID
+                   << ".pca";
+    pca_parameter_ = new Parameter(
             juce::String(parameter_name.str()),
             juce::String("{}"),
             ID,
@@ -289,15 +290,15 @@ Electrode::Electrode(int ID,
                                        numChannels,
                                        samplingRate,
                                        pre + post,
-                                       parameter_);
+                                       pca_parameter_);
     else
         spikeSort = nullptr;
 
     isMonitored = false;
 }
 
-Parameter *Electrode::ParameterToRegister() {
-    return parameter_;
+std::vector<Parameter *> Electrode::ParametersToRegister() {
+    return std::vector<Parameter *>({pca_parameter_ });
 }
 
 void Electrode::recreate_threshold_crossing_calculator() {
@@ -551,7 +552,9 @@ bool SpikeSorter::addElectrode(int nChans, String name, double Depth)
                                             getSampleRate(),
                                             dataChannelArray[chans[0]]->getSourceNodeID(),
                                             dataChannelArray[chans[0]]->getSubProcessorIdx());
-    parameters.add(newElectrode->ParameterToRegister());
+    for (auto parameter : newElectrode->ParametersToRegister()) {
+        parameters.add(parameter);
+    }
 
     newElectrode->depthOffsetMM = Depth;
     String log = "Added electrode (ID "+ String(uniqueID)+") with " + String(nChans) + " channels." ;
@@ -1213,7 +1216,10 @@ void SpikeSorter::loadCustomParametersFromXml()
                             newElectrode->set_threshold(k, thres[k]);
                             newElectrode->set_is_active(k, isActive[k]);
                         }
-                        parameters.add(newElectrode->ParameterToRegister());
+
+                        for (auto parameter : newElectrode->ParametersToRegister()) {
+                            parameters.add(parameter);
+                        }
                         delete[] channels;
                         delete[] thres;
                         delete[] isActive;

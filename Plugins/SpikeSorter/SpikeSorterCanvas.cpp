@@ -23,6 +23,8 @@
 
 #include "SpikeSorterCanvas.h"
 
+#include <memory>
+
 
 SpikeSorterCanvas::SpikeSorterCanvas(SpikeSorter* n) :
     processor(n), newSpike(false)
@@ -637,13 +639,11 @@ void SpikeHistogramPlot::updateUnitsFromProcessor()
 {
     const ScopedLock myScopedLock(mut);
     boxUnits = processor->getActiveElectrode()->spikeSort->getBoxUnits();
-    pcaUnits = processor->getActiveElectrode()->spikeSort->getPCAUnits();
 
     if (nWaveAx > 0)
     {
         wAxes[0]->updateUnits(boxUnits);
     }
-    pAxes[0]->updateUnits(pcaUnits);
 
 
     int selectedUnitID, selectedBoxID;
@@ -1748,7 +1748,6 @@ PCAProjectionAxes::PCAProjectionAxes(SpikeSorter* p) : GenericDrawAxes(0), proce
     rangeSet = false;
     inPolygonDrawingMode = false;
     clear();
-    updateProcessor = false;
     isOverUnit = -1;
 
     rangeUpButton = new UtilityButton("+", Font("Small Text", 10, Font::plain));
@@ -1787,11 +1786,6 @@ void PCAProjectionAxes::setPolygonDrawingMode(bool on)
     }
 }
 
-void PCAProjectionAxes::updateUnits(std::vector<PCAUnit> _units)
-{
-    units = _units;
-}
-
 void PCAProjectionAxes::drawUnit(Graphics& g, PCAUnit unit)
 {
     float w = getWidth();
@@ -1800,7 +1794,8 @@ void PCAProjectionAxes::drawUnit(Graphics& g, PCAUnit unit)
     int selectedUnitID, selectedBoxID;
     processor->getActiveElectrode()->spikeSort->getSelectedUnitAndBox(selectedUnitID, selectedBoxID);
     g.setColour(Colour(unit.ColorRGB[0],unit.ColorRGB[1],unit.ColorRGB[2]));
-    if (unit.poly.pts.size() > 2)
+    std::vector<PointD> pts = unit.poly->pts();
+    if (pts.size() > 2)
     {
         float thickness;
         if (unit.getUnitID() == selectedUnitID)
@@ -1811,27 +1806,30 @@ void PCAProjectionAxes::drawUnit(Graphics& g, PCAUnit unit)
             thickness = 1;
 
         double cx=0,cy=0;
-        for (int k=0; k<unit.poly.pts.size()-1; k++)
+        PointD offset = unit.poly->offset();
+        float offset_x = offset[0];
+        float offset_y = offset[1];
+        for (int k=0; k < pts.size() - 1; k++)
         {
             // convert projection coordinates to screen coordinates.
-            float x1 = (unit.poly.offset.X + unit.poly.pts[k].X - pcaMin[0]) / (pcaMax[0]-pcaMin[0]) * w;
-            float y1 = (unit.poly.offset.Y + unit.poly.pts[k].Y - pcaMin[1]) / (pcaMax[1]-pcaMin[1]) * h;
-            float x2 = (unit.poly.offset.X + unit.poly.pts[k+1].X - pcaMin[0]) / (pcaMax[0]-pcaMin[0]) * w;
-            float y2 = (unit.poly.offset.Y + unit.poly.pts[k+1].Y - pcaMin[1]) / (pcaMax[1]-pcaMin[1]) * h;
+            float x1 = (offset_x + pts[k][0] - pcaMin[0]) / (pcaMax[0] - pcaMin[0]) * w;
+            float y1 = (offset_y + pts[k][1] - pcaMin[1]) / (pcaMax[1] - pcaMin[1]) * h;
+            float x2 = (offset_x + pts[k + 1][0] - pcaMin[0]) / (pcaMax[0] - pcaMin[0]) * w;
+            float y2 = (offset_y + pts[k + 1][1] - pcaMin[1]) / (pcaMax[1] - pcaMin[1]) * h;
             cx+=x1;
             cy+=y1;
             g.drawLine(x1,y1,x2,y2,thickness);
         }
-        float x1 = (unit.poly.offset.X + unit.poly.pts[0].X - pcaMin[0]) / (pcaMax[0]-pcaMin[0]) * w;
-        float y1 = (unit.poly.offset.Y + unit.poly.pts[0].Y - pcaMin[1]) / (pcaMax[1]-pcaMin[1]) * h;
-        float x2 = (unit.poly.offset.X + unit.poly.pts[unit.poly.pts.size()-1].X - pcaMin[0]) / (pcaMax[0]-pcaMin[0]) * w;
-        float y2 = (unit.poly.offset.Y + unit.poly.pts[unit.poly.pts.size()-1].Y - pcaMin[1]) / (pcaMax[1]-pcaMin[1]) * h;
+        float x1 = (offset_x + pts[0][0] - pcaMin[0]) / (pcaMax[0] - pcaMin[0]) * w;
+        float y1 = (offset_y + pts[0][1] - pcaMin[1]) / (pcaMax[1] - pcaMin[1]) * h;
+        float x2 = (offset_x + pts[pts.size() - 1][0] - pcaMin[0]) / (pcaMax[0] - pcaMin[0]) * w;
+        float y2 = (offset_y + pts[pts.size() - 1][1] - pcaMin[1]) / (pcaMax[1] - pcaMin[1]) * h;
         g.drawLine(x1,y1,x2,y2,thickness);
 
         cx+=x2;
         cy+=y2;
 
-        g.drawText(String(unit.UnitID), (cx/unit.poly.pts.size())-10,(cy/unit.poly.pts.size())-10,20,15,juce::Justification::centred,false);
+        g.drawText(String(unit.UnitID), (cx / pts.size()) - 10, (cy / pts.size()) - 10, 20, 15, juce::Justification::centred, false);
     }
 }
 
@@ -1845,8 +1843,8 @@ void PCAProjectionAxes::paint(Graphics& g)
                 0, 0, rangeX, rangeY);
 
     // draw pca units polygons
-    for (int k=0; k<units.size(); k++)
-    {
+    std::vector<PCAUnit> units = processor->getActiveElectrode()->spikeSort->getPCAUnits();
+    for (int k = 0; k < units.size(); k++) {
         drawUnit(g, units[k]);
     }
 
@@ -1870,12 +1868,15 @@ void PCAProjectionAxes::paint(Graphics& g)
                 }
                 else
                 {
-                    g.drawLine((*it).X, (*it).Y, prev.X,prev.Y);
+                    g.drawLine((*it)[0], (*it)[1], prev[0],prev[1]);
                 }
                 prev = *it;
             }
 
-            g.drawLine(drawnPolygon.front().X,drawnPolygon.front().Y,drawnPolygon.back().X,drawnPolygon.back().Y);
+            g.drawLine(drawnPolygon.front()[0],
+                       drawnPolygon.front()[1],
+                       drawnPolygon.back()[0],
+                       drawnPolygon.back()[1]);
         }
     }
 
@@ -1981,6 +1982,7 @@ void PCAProjectionAxes::mouseDrag(const juce::MouseEvent& event)
             // pan unit
             int unitindex=-1;
 
+            auto units = processor->getActiveElectrode()->spikeSort->getPCAUnits();
             for (int k=0; k<units.size(); k++)
             {
                 if (units[k].getUnitID() == selectedUnitID)
@@ -1999,10 +2001,10 @@ void PCAProjectionAxes::mouseDrag(const juce::MouseEvent& event)
             float dx = float(event.x-prevx) / w*range0;
             float dy = float(event.y-prevy) / h*range1;
 
+            PointD &offset = units[unitindex].poly->offset();
+            offset += PointD(dx, dy);
+            processor->getActiveElectrode()->spikeSort->updatePCAUnits(units);
 
-            units[unitindex].poly.offset.X += dx;
-            units[unitindex].poly.offset.Y += dy;
-            updateProcessor = true;
             // draw polygon
             prevx = event.x;
             prevy = event.y;
@@ -2058,12 +2060,6 @@ void PCAProjectionAxes::mouseUp(const juce::MouseEvent& event)
     repaint();
     //redraw(false);
     setMouseCursor(MouseCursor::NormalCursor);
-    if	(updateProcessor)
-    {
-        processor->getActiveElectrode()->spikeSort->updatePCAUnits(units);
-        updateProcessor = false;
-
-    }
 
     if (inPolygonDrawingMode)
     {
@@ -2072,8 +2068,10 @@ void PCAProjectionAxes::mouseUp(const juce::MouseEvent& event)
         edt->spikeSorterCanvas->addPolygonUnitButton->setToggleState(false, dontSendNotification);
 
         // convert pixel coordinates to pca space coordinates and update unit
-        cPolygon poly;
-        poly.pts.resize(drawnPolygon.size());
+        drawnUnit.poly = std::make_shared<cPolygon>();
+
+        std::vector<PointD> &pts = drawnUnit.poly->pts();
+        pts.resize(drawnPolygon.size());
         int k=0;
 
         float w = getWidth();
@@ -2083,15 +2081,12 @@ void PCAProjectionAxes::mouseUp(const juce::MouseEvent& event)
 
         for (std::list<PointD>::iterator it = drawnPolygon.begin(); it != drawnPolygon.end(); it++,k++)
         {
-            poly.pts[k].X = (*it).X / w * range0 + pcaMin[0];
-            poly.pts[k].Y = (*it).Y / h * range1 + pcaMin[1];
+            pts[k].set({(*it)[0] / w * range0 + pcaMin[0],
+                        (*it)[1] / h * range1 + pcaMin[1]});
         }
-        drawnUnit.poly = poly;
-        units.push_back(drawnUnit);
         // add a new PCA unit
         Electrode* e = processor->getActiveElectrode();
         e->spikeSort->addPCAunit(drawnUnit);
-
 
         uint8 r,g,b;
         e->spikeSort->getUnitColor(drawnUnit.getUnitID(), r,g,b);
@@ -2109,6 +2104,7 @@ void PCAProjectionAxes::mouseMove(const juce::MouseEvent& event)
     float w = getWidth();
     float h = getHeight();
 
+    auto units = processor->getActiveElectrode()->spikeSort->getPCAUnits();
     for (int k=0; k<units.size(); k++)
     {
         // convert projection coordinates to screen coordinates.
@@ -2136,7 +2132,8 @@ void PCAProjectionAxes::mouseDown(const juce::MouseEvent& event)
     }
     if (inPolygonDrawingMode)
     {
-        drawnUnit = PCAUnit(processor->getActiveElectrode()->spikeSort->generateUnitID(),processor->getActiveElectrode()->spikeSort->generateLocalID());
+        drawnUnit = PCAUnit(processor->getActiveElectrode()->spikeSort->generateUnitID(),
+                            processor->getActiveElectrode()->spikeSort->generateLocalID());
         drawnPolygon.push_back(PointD(event.x,event.y));
     }
     else

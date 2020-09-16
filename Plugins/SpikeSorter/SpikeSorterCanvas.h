@@ -310,11 +310,8 @@ public:
     bool keyPressed(const KeyPress& key);
     void mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel);
 
-    void updateUnits(std::vector<PCAUnit> _units);
-
     void buttonClicked(Button* button);
 
-    void drawUnit(Graphics& g, PCAUnit unit);
     void rangeDown();
     void rangeUp();
 
@@ -322,6 +319,7 @@ private:
     float prevx,prevy;
     bool inPolygonDrawingMode;
 	void drawProjectedSpike(SorterSpikePtr s);
+    void drawUnit(Graphics& g, PCAUnit unit);
 
     bool rangeSet;
     SpikeSorter* processor;
@@ -332,7 +330,6 @@ private:
     SorterSpikeArray spikeBuffer;
     int bufferSize;
     int spikeIndex;
-    bool updateProcessor;
 	void calcWaveformPeakIdx(SorterSpikePtr, int, int, int*, int*);
 
     Image projectionImage;
@@ -349,8 +346,6 @@ private:
 
     float pcaMin[2],pcaMax[2];
     std::list<PointD> drawnPolygon;
-
-    std::vector<PCAUnit> units;
     int isOverUnit;
     PCAUnit drawnUnit;
 
@@ -413,7 +408,6 @@ private:
     double limits[MAX_N_CHAN][2];
 
     std::vector<BoxUnit> boxUnits;
-    std::vector<PCAUnit> pcaUnits;
     SpikeSorter* processor;
     OwnedArray<PCAProjectionAxes> pAxes;
     OwnedArray<WaveformAxes> wAxes;
