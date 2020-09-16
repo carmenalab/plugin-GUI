@@ -57,6 +57,40 @@ public:
             juce::Thread("HttpServer") {}
 
     void run() override {
+        svr_->Get("/api/status", [](const httplib::Request &, httplib::Response &res) {
+            json ret;
+            status_to_json(&ret);
+            res.set_content(ret.dump(), "application/json");
+        });
+        svr_->Put("/api/status", [](const httplib::Request &req, httplib::Response &res) {
+            std::string desired_mode;
+            try {
+                json request_json;
+                request_json = json::parse(req.body);
+                desired_mode = request_json["mode"];
+            } catch (json::exception &e) {
+                res.set_content(e.what(), "text/plain");
+                res.status = 400;
+                return;
+            }
+
+            if (desired_mode == "RECORD" && !CoreServices::getRecordingStatus()) {
+                const MessageManagerLock mmLock;
+                CoreServices::setRecordingStatus(true);
+            } else if (desired_mode == "ACQUIRE") {
+                const MessageManagerLock mmLock;
+                CoreServices::setRecordingStatus(false);
+                CoreServices::setAcquisitionStatus(true);
+            } else if (desired_mode == "IDLE") {
+                const MessageManagerLock mmLock;
+                CoreServices::setAcquisitionStatus(false);
+                CoreServices::setRecordingStatus(false);
+            }
+
+            json ret;
+            status_to_json(&ret);
+            res.set_content(ret.dump(), "application/json");
+        });
         svr_->Get("/api/processors", [this](const httplib::Request &, httplib::Response &res) {
             auto processors = graph_->getListOfProcessors();
 
@@ -219,6 +253,16 @@ private:
             return var(vars);
         } else {
             return var::undefined();
+        }
+    }
+
+    inline static void status_to_json(json *ret) {
+        if (CoreServices::getRecordingStatus()) {
+            (*ret)["mode"] = "RECORD";
+        } else if (CoreServices::getAcquisitionStatus()) {
+            (*ret)["mode"] = "ACQUIRE";
+        } else {
+            (*ret)["mode"] = "IDLE";
         }
     }
 
