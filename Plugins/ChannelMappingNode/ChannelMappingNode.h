@@ -35,7 +35,7 @@
 
     @see GenericProcessor
 */
-class ChannelMappingNode : public GenericProcessor
+class ChannelMappingNode : public GenericProcessor, public Parameter::Listener
 {
 public:
     ChannelMappingNode();
@@ -43,6 +43,7 @@ public:
 
     AudioProcessorEditor* createEditor() override;
 
+    void parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) override;
     void process (AudioSampleBuffer& buffer) override;
 
     void setParameter (int parameterIndex, float newValue) override;
@@ -57,6 +58,8 @@ private:
     Array<int> referenceChannels;
     Array<int> channelArray;
     Array<bool> enabledChannelArray;
+
+    Parameter *prb_json_parameter;
 
     bool editorIsConfigured;
 
