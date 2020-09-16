@@ -34,6 +34,7 @@ FilterEditor::FilterEditor(GenericProcessor* parentNode, bool useDefaultParamete
 
     lastLowCutString = " ";
     lastHighCutString = " ";
+    lastOrderString = " ";
 
     highCutLabel = new Label("high cut label", "High cut:");
     highCutLabel->setBounds(10,65,80,20);
@@ -67,6 +68,23 @@ FilterEditor::FilterEditor(GenericProcessor* parentNode, bool useDefaultParamete
     highCutValue->setTooltip("Set the high cut for the selected channels");
     addAndMakeVisible(highCutValue);
 
+    orderLabel = new Label("order label", "Order:");
+    orderLabel->setBounds(85,25,80,20);
+    orderLabel->setFont(Font("Small Text", 12, Font::plain));
+    orderLabel->setColour(Label::textColourId, Colours::darkgrey);
+    addAndMakeVisible(orderLabel);
+
+    orderValue = new Label("filter order value", lastOrderString);
+    orderValue->setBounds(95,42,30,18);
+    orderValue->setFont(Font("Default", 15, Font::plain));
+    orderValue->setColour(Label::textColourId, Colours::white);
+    orderValue->setColour(Label::backgroundColourId, Colours::grey);
+    orderValue->setEditable(true);
+    orderValue->addListener(this);
+    orderValue->setTooltip("Set the filter order for the selected channels");
+    addAndMakeVisible(orderValue);
+
+
     applyFilterOnADC = new UtilityButton("+ADCs",Font("Default", 10, Font::plain));
     applyFilterOnADC->addListener(this);
     applyFilterOnADC->setBounds(90,70,40,18);
@@ -89,10 +107,11 @@ FilterEditor::~FilterEditor()
 
 }
 
-void FilterEditor::setDefaults(double lowCut, double highCut)
+void FilterEditor::setDefaults(double lowCut, double highCut, int order)
 {
     lastHighCutString = String(roundFloatToInt(highCut));
     lastLowCutString = String(roundFloatToInt(lowCut));
+    lastOrderString = String(order);
 
     resetToSavedText();
 }
@@ -101,6 +120,7 @@ void FilterEditor::resetToSavedText()
 {
     highCutValue->setText(lastHighCutString, dontSendNotification);
     lowCutValue->setText(lastLowCutString, dontSendNotification);
+    orderValue->setText(lastOrderString, dontSendNotification);
 }
 
 
@@ -111,7 +131,7 @@ void FilterEditor::labelTextChanged(Label* label)
     Value val = label->getTextValue();
     double requestedValue = double(val.getValue());
 
-    if (requestedValue < 0.01 || requestedValue > 10000)
+    if (requestedValue < 0.01 || requestedValue > FilterNode::MAX_FREQUENCY)
     {
         CoreServices::sendStatusMessage("Value out of range.");
 
@@ -144,25 +164,32 @@ void FilterEditor::labelTextChanged(Label* label)
             if (requestedValue > minVal)
             {
                 fn->setCurrentChannel(chans[n]);
-                fn->setParameter(1, requestedValue);
+                fn->setParameter(FilterNode::PARAMETER_INDEX_HIGH_CUT, requestedValue);
             }
 
             lastHighCutString = label->getText();
 
         }
-        else
+        else if (label == lowCutValue)
         {
             double maxVal = fn->getHighCutValueForChannel(chans[n]);
 
             if (requestedValue < maxVal)
             {
                 fn->setCurrentChannel(chans[n]);
-                fn->setParameter(0, requestedValue);
+                fn->setParameter(FilterNode::PARAMETER_INDEX_LOW_CUT, requestedValue);
             }
 
             lastLowCutString = label->getText();
+        } else {
+            if (requestedValue > 0 && roundDoubleToInt(requestedValue) <= FilterNode::MAX_ORDER) {
+                fn->setParameter(FilterNode::PARAMETER_INDEX_ORDER, requestedValue);
+                lastOrderString = label->getText();
+            } else {
+                // Revert any changes if it's an illegal value
+                label->setText(lastOrderString, dontSendNotification);
+            }
         }
-
     }
 
 }

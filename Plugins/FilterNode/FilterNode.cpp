@@ -29,6 +29,7 @@ FilterNode::FilterNode()
     : GenericProcessor  ("Bandpass Filter")
     , defaultLowCut     (300.0f)
     , defaultHighCut    (6000.0f)
+    , defaultOrder      (2)
 {
     setProcessorType (PROCESSOR_TYPE_FILTER);
 
@@ -62,7 +63,7 @@ AudioProcessorEditor* FilterNode::createEditor()
     editor = new FilterEditor (this, true);
 
     FilterEditor* ed = (FilterEditor*) getEditor();
-    ed->setDefaults (defaultLowCut, defaultHighCut);
+    ed->setDefaults (defaultLowCut, defaultHighCut, defaultOrder);
 
     return editor;
 }
@@ -135,19 +136,22 @@ void FilterNode::updateSettings()
         // SO fixed this. I think values were never restored correctly because you cleared lowCuts.
         Array<double> oldlowCuts;
         Array<double> oldhighCuts;
+        Array<int> oldOrders;
         oldlowCuts = lowCuts;
         oldhighCuts = highCuts;
+        oldOrders = orders;
 
         filters.clear();
         lowCuts.clear();
         highCuts.clear();
+        orders.clear();
         shouldFilterChannel.clear();
 
         for (int n = 0; n < getNumInputs(); ++n)
         {
             filters.add (new Dsp::SmoothedFilterDesign
                          <Dsp::Butterworth::Design::BandPass    // design type
-                         <2>,                                   // order
+                         <FilterNode::MAX_ORDER>,               // max order
                          1,                                     // number of channels (must be const)
                          Dsp::DirectFormII> (1));               // realization
 
@@ -161,24 +165,28 @@ void FilterNode::updateSettings()
 
             shouldFilterChannel.add (true);
 
-            float newLowCut  = 0.f;
-            float newHighCut = 0.f;
+            float newLowCut;
+            float newHighCut;
+            int newOrder;
 
             if (oldlowCuts.size() > n)
             {
                 newLowCut  = oldlowCuts[n];
                 newHighCut = oldhighCuts[n];
+                newOrder = oldOrders[n];
             }
             else
             {
                 newLowCut  = defaultLowCut;
                 newHighCut = defaultHighCut;
+                newOrder = defaultOrder;
             }
 
             lowCuts.add  (newLowCut);
             highCuts.add (newHighCut);
+            orders.add (newOrder);
 
-            setFilterParameters (newLowCut, newHighCut, n);
+            setFilterParameters (newLowCut, newHighCut, newOrder, n);
         }
     }
 
@@ -204,14 +212,14 @@ bool FilterNode::getBypassStatusForChannel (int chan) const
 }
 
 
-void FilterNode::setFilterParameters (double lowCut, double highCut, int chan)
+void FilterNode::setFilterParameters (double lowCut, double highCut, int order, int chan)
 {
     if (dataChannelArray.size() - 1 < chan)
         return;
 
     Dsp::Params params;
     params[0] = dataChannelArray[chan]->getSampleRate(); // sample rate
-    params[1] = 2;                          // order
+    params[1] = order;                          // order
     params[2] = (highCut + lowCut) / 2;     // center frequency
     params[3] = highCut - lowCut;           // bandwidth
 
@@ -222,22 +230,24 @@ void FilterNode::setFilterParameters (double lowCut, double highCut, int chan)
 
 void FilterNode::setParameter (int parameterIndex, float newValue)
 {
-    if (parameterIndex < 2) // change filter settings
+    if (parameterIndex == FilterNode::PARAMETER_INDEX_LOW_CUT
+        || parameterIndex == FilterNode::PARAMETER_INDEX_HIGH_CUT
+        || parameterIndex == FilterNode::PARAMETER_INDEX_ORDER) // change filter settings
     {
-        if (newValue <= 0.01 || newValue >= 10000.0f)
+        if (newValue <= 0.01 || newValue >= FilterNode::MAX_FREQUENCY)
             return;
 
-        if (parameterIndex == 0)
-        {
-            lowCuts.set (currentChannel,newValue);
-        }
-        else if (parameterIndex == 1)
-        {
-            highCuts.set (currentChannel,newValue);
+        if (parameterIndex == PARAMETER_INDEX_LOW_CUT) {
+            lowCuts.set(currentChannel, newValue);
+        } else if (parameterIndex == PARAMETER_INDEX_HIGH_CUT) {
+            highCuts.set(currentChannel, newValue);
+        } else {
+            orders.set(currentChannel, roundFloatToInt(newValue));
         }
 
         setFilterParameters (lowCuts[currentChannel],
                              highCuts[currentChannel],
+                             orders[currentChannel],
                              currentChannel);
 
         editor->updateParameterButtons (parameterIndex);
@@ -299,6 +309,7 @@ void FilterNode::saveCustomChannelParametersToXml(XmlElement* channelInfo, int c
         XmlElement* channelParams = channelInfo->createNewChildElement ("PARAMETERS");
         channelParams->setAttribute ("highcut",         highCuts[channelNumber]);
         channelParams->setAttribute ("lowcut",          lowCuts[channelNumber]);
+        channelParams->setAttribute ("order",          orders[channelNumber]);
         channelParams->setAttribute ("shouldFilter",    shouldFilterChannel[channelNumber]);
     }
 }
@@ -319,9 +330,10 @@ void FilterNode::loadCustomChannelParametersFromXml(XmlElement* channelInfo, Inf
             {
                 highCuts.set (channelNum, subNode->getDoubleAttribute ("highcut", defaultHighCut));
                 lowCuts.set  (channelNum, subNode->getDoubleAttribute ("lowcut",  defaultLowCut));
+                orders.set  (channelNum, subNode->getIntAttribute("order",  defaultOrder));
                 shouldFilterChannel.set (channelNum, subNode->getBoolAttribute ("shouldFilter", true));
 
-                setFilterParameters (lowCuts[channelNum], highCuts[channelNum], channelNum);
+                setFilterParameters (lowCuts[channelNum], highCuts[channelNum], orders[channelNum], channelNum);
             }
         }
     }

@@ -50,7 +50,7 @@ public:
     void saveCustomParameters(XmlElement* xml);
     void loadCustomParameters(XmlElement* xml);
 
-    void setDefaults(double lowCut, double highCut);
+    void setDefaults(double lowCut, double highCut, int order);
     void resetToSavedText();
 
     void channelChanged (int chan, bool newState);
@@ -59,12 +59,15 @@ private:
 
     String lastHighCutString;
     String lastLowCutString;
+    String lastOrderString;
 
     ScopedPointer<Label> highCutLabel;
     ScopedPointer<Label> lowCutLabel;
+    ScopedPointer<Label> orderLabel;
 
     ScopedPointer<Label> highCutValue;
     ScopedPointer<Label> lowCutValue;
+    ScopedPointer<Label> orderValue;
     ScopedPointer<UtilityButton> applyFilterOnADC;
     ScopedPointer<UtilityButton> applyFilterOnChan;
 
