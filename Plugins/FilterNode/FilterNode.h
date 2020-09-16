@@ -37,6 +37,12 @@
 class FilterNode : public GenericProcessor
 {
 public:
+    static const int PARAMETER_INDEX_HIGH_CUT = 1;
+    static const int PARAMETER_INDEX_LOW_CUT = 2;
+    static const int PARAMETER_INDEX_ORDER = 3;
+    static const int MAX_ORDER = 10; // max filter order allowed
+    constexpr static double MAX_FREQUENCY = 20000.0; // maximum frequency allowed for either lowcut/highcut
+
     FilterNode();
     ~FilterNode();
 
@@ -62,10 +68,11 @@ public:
 
 
 private:
-    void setFilterParameters (double, double, int);
+    void setFilterParameters (double, double, int, int);
 
     Array<double> lowCuts;
     Array<double> highCuts;
+    Array<int> orders;
 
     OwnedArray<Dsp::Filter> filters;
     Array<bool> shouldFilterChannel;
@@ -74,6 +81,7 @@ private:
 
     double defaultLowCut;
     double defaultHighCut;
+    int defaultOrder;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FilterNode);
 };
