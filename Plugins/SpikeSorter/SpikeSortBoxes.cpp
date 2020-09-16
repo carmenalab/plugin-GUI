@@ -632,7 +632,7 @@ void SpikeSortBoxes::synchronizePCAParameter() {
     pca_parameter_->setValue(pca_sorting_.ToValue(), 0);
 }
 
-void SpikeSortBoxes::parameterValueChanged(Value &valueThatWasChanged) {
+void SpikeSortBoxes::parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) {
     if (pca_parameter_->getNumChannels() != 1) {
         // Something invalid? Only one channel supported.
         return;

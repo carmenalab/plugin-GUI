@@ -629,6 +629,14 @@ void SpikeHistogramPlot::setFlipSignal(bool state)
     }
 }
 
+void SpikeHistogramPlot::refreshThresholdSliders() {
+    for (int i = 0; i < wAxes.size(); i++)
+    {
+        wAxes[i]->setDetectorThreshold(processor->getActiveElectrode()->get_threshold(i));
+        wAxes[i]->repaint();
+    }
+}
+
 void SpikeHistogramPlot::setPolygonDrawingMode(bool on)
 {
     const ScopedLock myScopedLock(mut);
@@ -1197,25 +1205,6 @@ bool WaveformAxes::updateSpikeData(SorterSpikePtr s)
     }
 
     return true;
-
-}
-
-bool WaveformAxes::checkThreshold(SorterSpikePtr s)
-{
-    int sampIdx = s->getChannel()->getTotalSamples()*type;
-
-	for (int i = 0; i < s->getChannel()->getTotalSamples() - 1; i++)
-    {
-
-        if (s->getData()[sampIdx] > displayThresholdLevel)
-        {
-            return true;
-        }
-
-        sampIdx++;
-    }
-
-    return false;
 
 }
 

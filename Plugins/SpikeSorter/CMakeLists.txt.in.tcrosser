@@ -5,7 +5,7 @@ project(tcrosser-download NONE)
 include(ExternalProject)
 ExternalProject_Add(tcrosser
   GIT_REPOSITORY    git@github.com:carmenalab/c.git
-  GIT_TAG           botros/cmake
+  GIT_TAG           master
   SOURCE_DIR        "${CMAKE_CURRENT_BINARY_DIR}/tcrosser-src"
   BINARY_DIR        "${CMAKE_CURRENT_BINARY_DIR}/tcrosser-build"
   CONFIGURE_COMMAND ""

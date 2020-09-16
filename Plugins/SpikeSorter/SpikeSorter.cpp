@@ -225,7 +225,6 @@ void SpikeSorter::updateSettings()
 
 Electrode::~Electrode()
 {
-    delete[] thresholds_;
     delete[] isActive_;
     delete[] voltageScale;
     delete[] channels_;
@@ -243,19 +242,21 @@ Electrode::Electrode(int ID,
                      int post,
                      float samplingRate,
                      int sourceId,
-                     int subIdx) {
+                     int subIdx,
+                     std::function<void(Parameter *)> register_parameter_callback) :
+                     register_parameter_callback_(std::move(register_parameter_callback)) {
     electrodeID = ID;
     computingThread = pth;
     uniqueIDgenerator = uniqueIDgenerator_;
     name = _name;
 	sourceNodeId_ = sourceId;
 	sourceSubIdx = subIdx;
+	default_threshold_ = default_threshold;
 
     numChannels = _numChannels;
     prePeakSamples = pre;
     postPeakSamples = post;
 
-    thresholds_ = new double[numChannels];
     isActive_ = new bool[numChannels];
     channels_ = new int[numChannels];
     voltageScale = new double[numChannels];
@@ -267,7 +268,6 @@ Electrode::Electrode(int ID,
     for (int i = 0; i < numChannels; i++)
     {
         channels_[i] = _channels[i];
-        thresholds_[i] = default_threshold;
         isActive_[i] = true;
         voltageScale[i] = 500;
     }
@@ -276,11 +276,11 @@ Electrode::Electrode(int ID,
 
     spikePlot = nullptr;
 
-    std::stringstream parameter_name;
-    parameter_name << "electrode" << std::setfill('0') << std::setw(4) << ID
+    std::stringstream pca_parameter_name;
+    pca_parameter_name << "electrode" << std::setfill('0') << std::setw(4) << ID
                    << ".pca";
     pca_parameter_ = new Parameter(
-            juce::String(parameter_name.str()),
+            juce::String(pca_parameter_name.str()),
             juce::String("{}"),
             ID,
             false);
@@ -293,24 +293,87 @@ Electrode::Electrode(int ID,
                                        pca_parameter_);
     else
         spikeSort = nullptr;
+    register_parameter_callback_(pca_parameter_);
 
     isMonitored = false;
 }
 
-std::vector<Parameter *> Electrode::ParametersToRegister() {
-    return std::vector<Parameter *>({pca_parameter_ });
+void Electrode::parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) {
+    if (threshold_parameter_names_to_channel_.find(parameterName.toStdString())
+        == threshold_parameter_names_to_channel_.end()) {
+        // Could not find parameter; ignore.
+        return;
+    }
+    int channel = threshold_parameter_names_to_channel_[parameterName.toStdString()];
+    auto thresholder = crossing_calculator->thresholder(channel);
+
+    if (!thresholder) {
+        // Invalid channel - must be an old channel that's no longer active.
+        return;
+    }
+
+    Parameter *parameter = threshold_parameters_by_channel_[channel];
+    thresholder->set_threshold(parameter->getValue(0).operator double());
+
+    // Need to hold the message lock if calling a component method from a different thread (in this case, the HTTP
+    // server thread).
+    const MessageManagerLock mmLock;
+    spikePlot->refreshThresholdSliders();
 }
 
 void Electrode::recreate_threshold_crossing_calculator() {
-    std::vector<std::shared_ptr<tcrosser::Thresholder<float>>> thresholders;
 
+    std::vector<double> thresholds;
+    std::vector<int> active_channels;
+
+    // Copy over thresholds from the existing thresholders
     for (int i = 0; i < numChannels; i++) {
         if (isActive_[i]) {
-            thresholders.push_back(std::make_shared<tcrosser::StaticThresholder<float>>(
-                    thresholds_[i],
-                    channels_[i],
-                    postPeakSamples));
+            active_channels.push_back(channels_[i]);
+            if (crossing_calculator) {
+                auto thresholder = crossing_calculator->thresholder(get_channel(i));
+                if (thresholder) {
+                    thresholds.push_back(thresholder->get_threshold());
+                } else {
+                    thresholds.push_back(default_threshold_);
+                }
+            } else {
+                thresholds.push_back(default_threshold_);
+            }
         }
+    }
+
+    std::vector<std::shared_ptr<tcrosser::Thresholder<float>>> thresholders;
+    for (int i = 0; i < thresholds.size(); i++) {
+        double threshold = thresholds[i];
+        int channel = active_channels[i];
+
+        thresholders.push_back(std::make_shared<tcrosser::StaticThresholder<float>>(
+                threshold,
+                channel,
+                postPeakSamples));
+
+        // Ensure that all thresholders have a parameter set per channel. Create one if not.
+        if (threshold_parameters_by_channel_.find(channel) != threshold_parameters_by_channel_.end()) {
+            continue;
+        }
+
+        std::stringstream thresholds_parameter_name;
+        thresholds_parameter_name << "electrode" << std::setfill('0') << std::setw(4) << electrodeID
+                                  << ".threshold" << std::setfill('0') << std::setw(4) << channel;
+        auto threshold_parameter_name_str = thresholds_parameter_name.str();
+        auto *tparam = new Parameter(
+                juce::String(threshold_parameter_name_str),
+                0.0f,
+                100000.0f,
+                threshold,
+                electrodeID,
+                false);
+        tparam->setValue(var(threshold), 0);
+        threshold_parameters_by_channel_[channels_[i]] = tparam;
+        threshold_parameter_names_to_channel_[threshold_parameter_name_str] = channels_[i];
+        tparam->addListener(this);
+        register_parameter_callback_(tparam);
     }
 
     crossing_calculator = std::make_unique<tcrosser::ThresholdCrossingCalculator<float>>(
@@ -357,12 +420,19 @@ void Electrode::set_is_active(int channel_index, bool is_active) {
 }
 
 double Electrode::get_threshold(int channel_index) {
-    return thresholds_[channel_index];
+    auto t = crossing_calculator->thresholder(get_channel(channel_index));
+    return t ? t->get_threshold() : default_threshold_;
 }
 
 void Electrode::set_threshold(int channel_index, double threshold) {
-    thresholds_[channel_index] = threshold;
-    crossing_calculator->thresholder(get_channel(channel_index))->set_threshold(threshold);
+    int channel = get_channel(channel_index);
+    auto t = crossing_calculator->thresholder(channel);
+    if (t) {
+        t->set_threshold(threshold);
+
+        Parameter *parameter = threshold_parameters_by_channel_[channel];
+        parameter->setValue(var(threshold), 0);
+    }
 }
 
 void SpikeSorter::setElectrodeVoltageScale(int electrodeID, int index, float newvalue)
@@ -540,23 +610,22 @@ bool SpikeSorter::addElectrode(int nChans, String name, double Depth)
     for (int k = 0; k < nChans; k++)
         chans[k] = firstChan + k;
 
-    Electrode *newElectrode = new Electrode(++uniqueID,
-                                            &uniqueIDgenerator,
-                                            &computingThread,
-                                            name,
-                                            nChans,
-                                            chans,
-                                            getDefaultThreshold(),
-                                            numPreSamples,
-                                            numPostSamples,
-                                            getSampleRate(),
-                                            dataChannelArray[chans[0]]->getSourceNodeID(),
-                                            dataChannelArray[chans[0]]->getSubProcessorIdx());
-    for (auto parameter : newElectrode->ParametersToRegister()) {
-        parameters.add(parameter);
-    }
+    Electrode *newElectrode = new Electrode(
+            ++uniqueID,
+            &uniqueIDgenerator,
+            &computingThread,
+            name,
+            nChans,
+            chans,
+            getDefaultThreshold(),
+            numPreSamples,
+            numPostSamples,
+            getSampleRate(),
+            dataChannelArray[chans[0]]->getSourceNodeID(),
+            dataChannelArray[chans[0]]->getSubProcessorIdx(),
+            [this](Parameter *parameter) { parameters.add(parameter); });
 
-    newElectrode->depthOffsetMM = Depth;
+            newElectrode->depthOffsetMM = Depth;
     String log = "Added electrode (ID "+ String(uniqueID)+") with " + String(nChans) + " channels." ;
     std::cout << log << std::endl;
     for (int i = 0; i < nChans; i++)
@@ -1199,27 +1268,25 @@ void SpikeSorter::loadCustomParametersFromXml()
 
                         int sourceNodeId = 102010; // some number
 
-                        Electrode *newElectrode = new Electrode(electrodeID,
-                                                                &uniqueIDgenerator,
-                                                                &computingThread,
-                                                                electrodeName,
-                                                                channelsPerElectrode,
-                                                                channels,
-                                                                getDefaultThreshold(),
-                                                                numPreSamples,
-                                                                numPostSamples,
-                                                                getSampleRate(),
-                                                                sourceNodeId,
-                                                                0);
-                        for (int k=0; k<channelsPerElectrode; k++)
-                        {
+                        Electrode *newElectrode = new Electrode(
+                                electrodeID,
+                                &uniqueIDgenerator,
+                                &computingThread,
+                                electrodeName,
+                                channelsPerElectrode,
+                                channels,
+                                getDefaultThreshold(),
+                                numPreSamples,
+                                numPostSamples,
+                                getSampleRate(),
+                                sourceNodeId,
+                                0,
+                                [this](Parameter *parameter) { parameters.add(parameter); });
+                        for (int k = 0; k < channelsPerElectrode; k++) {
                             newElectrode->set_threshold(k, thres[k]);
                             newElectrode->set_is_active(k, isActive[k]);
                         }
 
-                        for (auto parameter : newElectrode->ParametersToRegister()) {
-                            parameters.add(parameter);
-                        }
                         delete[] channels;
                         delete[] thres;
                         delete[] isActive;

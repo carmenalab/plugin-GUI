@@ -444,7 +444,7 @@ void Parameter::valueChanged (Value& valueThatWasChanged)
         m_possibleValues = possibleValues;
     }
 
-    m_listeners.call (&Parameter::Listener::parameterValueChanged, valueThatWasChanged);
+    m_listeners.call (&Parameter::Listener::parameterValueChanged, valueThatWasChanged, getName());
 }
 
 
