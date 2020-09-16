@@ -47,7 +47,7 @@ public:
     public:
         virtual ~Listener() {}
 
-        virtual void parameterValueChanged (Value& valueThatWasChanged) = 0;
+        virtual void parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) = 0;
     };
 
     enum ParameterType

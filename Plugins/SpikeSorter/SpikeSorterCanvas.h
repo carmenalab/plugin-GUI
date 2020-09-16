@@ -213,7 +213,6 @@ public:
 
 
 	bool updateSpikeData(SorterSpikePtr s);
-	bool checkThreshold(SorterSpikePtr spike);
 
     void setSignalFlip(bool state);
     void paint(Graphics& g);
@@ -259,7 +258,6 @@ private:
     bool drawGrid;
 
     float displayThresholdLevel;
-    float detectorThresholdLevel;
 
     void drawWaveformGrid(Graphics& g);
 
@@ -361,6 +359,14 @@ public:
 
     void paint(Graphics& g);
     void resized();
+
+    /**
+     * Refresh the threshold slides for all of the waveform axes, in case the threshold is changed out-of-band (e.g.,
+     * set via the API, updated by a separate process, etc.). Ensure the message manager lock is held if calling from
+     * a different thread; you should get a debug assertion if compiling in Debug if the lock is needed.
+     * */
+    void refreshThresholdSliders();
+
     void setFlipSignal(bool state);
 
     void select();

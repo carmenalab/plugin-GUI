@@ -402,7 +402,7 @@ public:
     void resizeWaveform(int numSamples);
 
     // Parameter::Listener
-    void parameterValueChanged (Value& valueThatWasChanged) override;
+    void parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) override;
 
     void projectOnPrincipalComponents(SorterSpikePtr so);
 	bool sortSpike(SorterSpikePtr so, bool PCAfirst);

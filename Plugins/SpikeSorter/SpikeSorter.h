@@ -34,6 +34,7 @@
 #include <math.h>
 #include <memory>
 #include <vector>
+#include <unordered_map>
 #include "tcrosser.h"
 
 class SpikeSorterEditor;
@@ -148,7 +149,7 @@ private:
     double m_oldM, m_newM, m_oldS, m_newS;
 };
 
-class Electrode {
+class Electrode : public Parameter::Listener {
 public:
     Electrode(int electrodeID,
               UniqueIDgenerator *uniqueIDgenerator_,
@@ -161,11 +162,14 @@ public:
               int post,
               float samplingRate,
               int sourceNodeId,
-              int sourceSubIdx);
+              int sourceSubIdx,
+              std::function<void(Parameter *)> register_parameter_callback);
     ~Electrode();
 
     void resizeWaveform(int numPre, int numPost);
-    std::vector<Parameter *> ParametersToRegister();
+
+    // Parameter::Listener
+    void parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) override;
 
     String name;
 
@@ -203,11 +207,14 @@ public:
     void set_threshold(int channel_index, double threshold);
 
 private:
-    double* thresholds_;
+    double default_threshold_;
     bool* isActive_;
     int* channels_;
     void recreate_threshold_crossing_calculator();
     Parameter *pca_parameter_;
+    std::unordered_map<int, Parameter *> threshold_parameters_by_channel_;
+    std::unordered_map<std::string, int> threshold_parameter_names_to_channel_;
+    std::function<void(Parameter *)> register_parameter_callback_;
 };
 
 class ContinuousCircularBuffer
