@@ -1,0 +1,15 @@
+project(river-download NONE)
+
+cmake_minimum_required(VERSION 3.17)
+
+include(ExternalProject)
+ExternalProject_Add(river
+  GIT_REPOSITORY    https://github.com/pbotros/river.git
+  GIT_TAG           master
+  SOURCE_DIR        "${CMAKE_CURRENT_BINARY_DIR}/river-src"
+  BINARY_DIR        "${CMAKE_CURRENT_BINARY_DIR}/river-build"
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND     ""
+  INSTALL_COMMAND   ""
+  TEST_COMMAND      ""
+)
