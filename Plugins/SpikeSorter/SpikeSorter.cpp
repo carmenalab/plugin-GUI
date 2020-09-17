@@ -317,8 +317,10 @@ void Electrode::parameterValueChanged(Value &valueThatWasChanged, const String &
 
     // Need to hold the message lock if calling a component method from a different thread (in this case, the HTTP
     // server thread).
-    const MessageManagerLock mmLock;
-    spikePlot->refreshThresholdSliders();
+    if (spikePlot != nullptr) {
+        const MessageManagerLock mmLock;
+        spikePlot->refreshThresholdSliders();
+    }
 }
 
 void Electrode::recreate_threshold_crossing_calculator() {
@@ -380,7 +382,7 @@ void Electrode::recreate_threshold_crossing_calculator() {
             thresholders,
             prePeakSamples,
             postPeakSamples,
-            postPeakSamples + 1,
+            postPeakSamples - 1,
             tcrosser::AlignmentDirection::GLOBAL_MINIMA);
 }
 
@@ -1021,7 +1023,7 @@ void SpikeSorter::process(AudioSampleBuffer& buffer)
 
         auto crossings = electrode->crossing_calculator->consume(&data.front(), nSamples);
 
-        for (const auto& crossing : crossings) {
+        for (const auto &crossing : crossings) {
             const SpikeChannel *kSpikeChan = getSpikeChannel(electrode_idx);
             SpikeEvent::SpikeBuffer spikeData(kSpikeChan);
             Array<float> thresholds;
@@ -1032,8 +1034,8 @@ void SpikeSorter::process(AudioSampleBuffer& buffer)
                                          crossing);
                 thresholds.add(electrode->get_threshold(channel));
             }
-            int64 relative_peak_index = crossing.data_index + electrode->prePeakSamples;
-            int64 timestamp = getTimestamp(electrode->get_channel(0)) + relative_peak_index;
+            int64 timestamp = crossing.data_index + electrode->prePeakSamples;
+            int64 relative_timestamp = timestamp - getTimestamp(electrode->get_channel(0));
 
             SorterSpikePtr sorterSpike = new SorterSpikeContainer(kSpikeChan, spikeData, timestamp);
 
@@ -1060,7 +1062,7 @@ void SpikeSorter::process(AudioSampleBuffer& buffer)
             SpikeEventPtr newSpike = SpikeEvent::createSpikeEvent(kSpikeChan, timestamp, thresholds, spikeData,
                                                                   sorterSpike->sortedId, md);
 
-            addSpike(kSpikeChan, newSpike, relative_peak_index);
+            addSpike(kSpikeChan, newSpike, relative_timestamp);
         }
     } // end cycle through electrodes
 
