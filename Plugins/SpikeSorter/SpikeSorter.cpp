@@ -380,7 +380,7 @@ void Electrode::recreate_threshold_crossing_calculator() {
             thresholders,
             prePeakSamples,
             postPeakSamples,
-            postPeakSamples - 1,
+            postPeakSamples + 1,
             tcrosser::AlignmentDirection::GLOBAL_MINIMA);
 }
 
