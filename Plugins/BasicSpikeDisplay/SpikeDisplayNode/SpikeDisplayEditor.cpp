@@ -41,13 +41,20 @@ SpikeDisplayEditor::SpikeDisplayEditor(GenericProcessor* parentNode)
 
     tabText = "Spikes";
 
-
+    alwaysRecordButton = new UtilityButton("Always Record", Font("Default", 10, Font::plain));
+    alwaysRecordButton->addListener(this);
+    alwaysRecordButton->setBounds(10, 25, 100, 25);
+    alwaysRecordButton->setClickingTogglesState(true);
+    alwaysRecordButton->setToggleState(true, dontSendNotification);
+    alwaysRecordButton->setTooltip(
+            "When this button is on, spikes will always be recorded, even if threshold is not crossed.");
+    addAndMakeVisible(alwaysRecordButton);
 
 }
 
 SpikeDisplayEditor::~SpikeDisplayEditor()
 {
-    deleteAllChildren();
+//    deleteAllChildren();
 }
 
 void SpikeDisplayEditor::initializeButtons()
@@ -213,6 +220,11 @@ void SpikeDisplayEditor::stopRecording()
 
 void SpikeDisplayEditor::buttonEvent(Button* button)
 {
+    if (button == alwaysRecordButton.get()) {
+        auto node = (SpikeDisplayNode *) getProcessor();
+        node->setParameter(4, alwaysRecordButton->getToggleState() ? 1.0 : 0.0);
+    }
+
     //std::cout<<"Got event from component:"<<button<<std::endl;
 
     // int pIdx = 0;
