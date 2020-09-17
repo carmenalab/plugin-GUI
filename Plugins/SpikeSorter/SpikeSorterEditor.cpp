@@ -318,49 +318,48 @@ void SpikeSorterEditor::buttonEvent(Button* button)
         PopupMenu waveSizePostMenu;
 		bool allowSampleChange = !CoreServices::getAcquisitionStatus();
 
-        waveSizePreMenu.addItem(1,"8",allowSampleChange,processor->getNumPreSamples() == 8);
-		waveSizePreMenu.addItem(2, "16", allowSampleChange, processor->getNumPreSamples() == 16);
-		waveSizePostMenu.addItem(3, "32", allowSampleChange, processor->getNumPostSamples() == 32);
-		waveSizePostMenu.addItem(4, "64", allowSampleChange, processor->getNumPostSamples() == 64);
-
+        waveSizePreMenu.addItem(108, "8", allowSampleChange, processor->getNumPreSamples() == 8);
+        waveSizePreMenu.addItem(116, "16", allowSampleChange, processor->getNumPreSamples() == 16);
+        waveSizePreMenu.addItem(121, "21", allowSampleChange, processor->getNumPreSamples() == 21);
+        waveSizePostMenu.addItem(232, "32", allowSampleChange, processor->getNumPostSamples() == 32);
+        waveSizePostMenu.addItem(240, "40", allowSampleChange, processor->getNumPostSamples() == 40);
+        waveSizePostMenu.addItem(264, "64", allowSampleChange, processor->getNumPostSamples() == 64);
         waveSizeMenu.addSubMenu("Pre samples",waveSizePreMenu);
         waveSizeMenu.addSubMenu("Post samples",waveSizePostMenu);
-        waveSizeMenu.addItem(7,"Flip Signal",true,processor->getFlipSignalState());
+
+        waveSizeMenu.addItem(1,"Flip Signal",true,processor->getFlipSignalState());
         configMenu.addSubMenu("Waveform",waveSizeMenu,true);
-        configMenu.addItem(5,"Current Channel => Audio",true,processor->getAutoDacAssignmentStatus());
-        configMenu.addItem(6,"Threshold => All channels",true,processor->getThresholdSyncStatus());
-        configMenu.addItem(8,"Disable periodic PCA",true,processor->getDisablePeriodicPCA());
+
+        configMenu.addItem(2,"Current Channel => Audio",true,processor->getAutoDacAssignmentStatus());
+        configMenu.addItem(3,"Threshold => All channels",true,processor->getThresholdSyncStatus());
+        configMenu.addItem(4,"Disable periodic PCA",true,processor->getDisablePeriodicPCA());
 
         const int result = configMenu.show();
         switch (result)
         {
-            case 1:
-                processor->setNumPreSamples(8);
+            case 108:
+            case 116:
+            case 121:
+                processor->setNumPreSamples(result - 100);
 				CoreServices::updateSignalChain(this);
+                break;
+            case 232:
+            case 240:
+            case 264:
+                processor->setNumPostSamples(result - 200);
+				CoreServices::updateSignalChain(this);
+                break;
+            case 1:
+                processor->setFlipSignalState(!processor->getFlipSignalState());
                 break;
             case 2:
-                processor->setNumPreSamples(16);
-				CoreServices::updateSignalChain(this);
-                break;
-            case 3:
-                processor->setNumPostSamples(32);
-				CoreServices::updateSignalChain(this);
-                break;
-            case 4:
-                processor->setNumPostSamples(64);
-				CoreServices::updateSignalChain(this);
-                break;
-            case 5:
                 processor->seteAutoDacAssignment(!processor->getAutoDacAssignmentStatus());
                 refreshElectrodeList();
                 break;
-            case 6:
+            case 3:
                 processor->setThresholdSyncStatus(!processor->getThresholdSyncStatus());
                 break;
-            case 7:
-                processor->setFlipSignalState(!processor->getFlipSignalState());
-                break;
-            case 8:
+            case 4:
                 processor->setDisablePeriodicPCA(!processor->getDisablePeriodicPCA());
                 break;
         }
