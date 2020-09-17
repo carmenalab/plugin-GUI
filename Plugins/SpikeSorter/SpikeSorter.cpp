@@ -1008,8 +1008,7 @@ void SpikeSorter::process(AudioSampleBuffer& buffer)
             if (!electrode->is_active(chan)) {
                 continue;
             }
-
-            const float *read_pointer = buffer.getReadPointer(chan, 0);
+            const float *read_pointer = buffer.getReadPointer(electrode->get_channel(chan), 0);
             for (int i = 0; i < nSamples; i++) {
                 electrode->runningStats[chan].Push(read_pointer[i]);
             }
