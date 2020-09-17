@@ -32,6 +32,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <utility>
 #include <sstream>
 #include <nlohmann/json.hpp>
+#include <unordered_set>
 
 using json = nlohmann::json;
 
@@ -204,28 +205,55 @@ PCAjob();
 
 class PCAResults {
 public:
-    int num_pcs;
-    std::vector<std::vector<float>> pcs;
-    std::vector<float> pc_mins;
-    std::vector<float> pc_maxes;
 
-    PCAResults() : num_pcs(0) {}
+    PCAResults() : PCAResults(0) {}
+
+    PCAResults(int num_pcs) : num_pcs_(num_pcs) {}
 
     PCAResults(
             int num_pcs,
-            std::vector<std::vector<float>> pcs,
-            std::vector<float> pc_mins,
-            std::vector<float> pc_maxes)
-            : num_pcs(num_pcs), pcs(std::move(pcs)), pc_mins(std::move(pc_mins)), pc_maxes(std::move(pc_maxes)) {}
+            std::vector<std::vector<float>>  pcs,
+            std::vector<float>  mean,
+            std::vector<float>  pc_mins,
+            std::vector<float>  pc_maxes)
+            : num_pcs_(num_pcs),
+              pcs_(std::move(pcs)),
+              mean_(std::move(mean)),
+              pc_mins_(std::move(pc_mins)),
+              pc_maxes_(std::move(pc_maxes)) {}
 
-    void clear() {
-        pcs.clear();
-        pc_mins.clear();
-        pc_maxes.clear();
+    int num_pcs() const {
+        return num_pcs_;
+    }
+
+    const std::vector<std::vector<float>> &pcs() const {
+        return pcs_;
+    }
+
+    const std::vector<float> &mean() const {
+        return mean_;
+    }
+
+    const std::vector<float> &pc_mins() const {
+        return pc_mins_;
+    }
+
+    const std::vector<float> &pc_maxes() const {
+        return pc_maxes_;
     }
 
     bool is_populated() const {
-        return pcs.size() == num_pcs && pc_mins.size() == num_pcs && pc_maxes.size() == num_pcs;
+        return num_pcs_ > 0 &&
+               pcs_.size() == num_pcs_ &&
+               pc_mins_.size() == num_pcs_ &&
+               pc_maxes_.size() == num_pcs_;
+    }
+
+    void clear() {
+        pcs_.clear();
+        pc_mins_.clear();
+        pc_maxes_.clear();
+        mean_.clear();
     }
 
     json ToJson() const;
@@ -233,9 +261,16 @@ public:
 
     explicit operator std::string() const {
         std::stringstream ss;
-        ss << "PCAResults[num_pcs=" << num_pcs << ",is_populated=" << is_populated() << "]";
+        ss << "PCAResults[num_pcs=" << num_pcs_ << ",is_populated=" << is_populated() << "]";
         return ss.str();
     }
+
+private:
+    int num_pcs_;
+    std::vector<std::vector<float>> pcs_;
+    std::vector<float> mean_;
+    std::vector<float> pc_mins_;
+    std::vector<float> pc_maxes_;
 };
 
 class PCAjob : public ReferenceCountedObject {
@@ -307,7 +342,7 @@ public:
     };
 
     cEllipse(const PointD& center,
-             const std::vector<std::vector<float>>& rotation,
+             std::vector<std::vector<float>>  rotation,
              const std::vector<float>& radii);
 
     bool isPointInside(PointD p) const override;
