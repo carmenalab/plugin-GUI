@@ -59,7 +59,7 @@ public:
     Visualizer* createNewCanvas();
 
 private:
-
+    ScopedPointer<UtilityButton> alwaysRecordButton;
     UtilityButton* panUpBtn;
     UtilityButton* panDownBtn;
     UtilityButton* zoomInBtn;

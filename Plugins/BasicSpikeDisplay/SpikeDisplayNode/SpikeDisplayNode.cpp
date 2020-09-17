@@ -180,6 +180,8 @@ void SpikeDisplayNode::setParameter (int param, float val)
     else if (param == 2)   // redraw
     {
         redrawRequested = true;
+    } else if (param == SpikeDisplayNode::PARAMETER_INDEX_ALWAYS_RECORD) {
+        always_record_ = val > 0;
     }
 }
 
@@ -238,13 +240,13 @@ void SpikeDisplayNode::handleSpike(const SpikeChannel* spikeInfo, const MidiMess
 		aboveThreshold = aboveThreshold | checkThreshold(i, e->displayThresholds[i], newSpike);
 	}
 
+	if (isRecording && (aboveThreshold || always_record_)) {
+        // save spike
+        CoreServices::RecordNode::writeSpike(newSpike, spikeInfo);
+	}
+
 	if (aboveThreshold)
 	{
-		// save spike
-		if (isRecording)
-		{
-			CoreServices::RecordNode::writeSpike(newSpike, spikeInfo);
-		}
 		// add to buffer
 		if (e->currentSpikeIndex < displayBufferSize)
 		{
@@ -252,8 +254,6 @@ void SpikeDisplayNode::handleSpike(const SpikeChannel* spikeInfo, const MidiMess
 			e->mostRecentSpikes.set(e->currentSpikeIndex, newSpike.release());
 			e->currentSpikeIndex++;
 		}
-
-		
 	}
 }
 

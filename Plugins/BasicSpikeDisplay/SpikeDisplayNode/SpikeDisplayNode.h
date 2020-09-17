@@ -40,6 +40,8 @@ class SpikePlot;
 class SpikeDisplayNode :  public GenericProcessor
 {
 public:
+    static const int PARAMETER_INDEX_ALWAYS_RECORD = 3;
+
     SpikeDisplayNode();
     ~SpikeDisplayNode();
 
@@ -95,6 +97,7 @@ private:
 
     // members for recording
     bool isRecording;
+    bool always_record_;
     //   bool signalFilesShouldClose;
     //   RecordNode* recordNode;
     //   String baseDirectory;
