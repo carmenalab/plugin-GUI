@@ -617,7 +617,7 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator *uniqueIDgenerator_,
     pca_parameter_ = pca_parameter;
 
     // Sane default for now.
-    pca_sorting_.results.num_pcs = 2;
+    pca_sorting_.results = PCAResults(2);
 
     for (int n = 0; n < bufferSize; n++)
     {
@@ -694,11 +694,10 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
             selectedUnit  = spikesortNode->getIntAttribute("selectedUnit");
             selectedBox =  spikesortNode->getIntAttribute("selectedBox");
 
-            pca_sorting_ = PCASorting();
-            PCAResults &pca_results = pca_sorting_.results;
-            std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
-
             boxUnits.clear();
+
+            pca_sorting_ = PCASorting();
+            std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
 
             forEachXmlChildElement(*spikesortNode, UnitNode)
             {
@@ -709,18 +708,22 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                     bPCAjobFinished = UnitNode->getBoolAttribute("PCAjobFinished");
                     bPCAcomputed = UnitNode->getBoolAttribute("PCAcomputed");
 
-                    pca_results.num_pcs = UnitNode->getIntAttribute("numPCs", 2);
-
+                    int num_pcs = UnitNode->getIntAttribute("numPCs", 2);
                     bool is_old_style_pcs = false;
+                    std::vector<float> pc_mins;
+                    std::vector<float> pc_maxes;
+                    std::vector<std::vector<float>> pcs;
+                    std::vector<float> mean;
+
                     if (UnitNode->hasAttribute("pc1min")) {
                         // "Old" style with 2 hardcoded PCs, detected by presence of "old" tag
-                        jassert(pca_results.num_pcs == 2);
+                        jassert(num_pcs == 2);
                         is_old_style_pcs = true;
-                        pca_results.pc_mins.push_back(UnitNode->getDoubleAttribute("pc1min"));
-                        pca_results.pc_mins.push_back(UnitNode->getDoubleAttribute("pc2min"));
+                        pc_mins.push_back(UnitNode->getDoubleAttribute("pc1min"));
+                        pc_mins.push_back(UnitNode->getDoubleAttribute("pc2min"));
 
-                        pca_results.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc1max"));
-                        pca_results.pc_maxes.push_back(UnitNode->getDoubleAttribute("pc2max"));
+                        pc_maxes.push_back(UnitNode->getDoubleAttribute("pc1max"));
+                        pc_maxes.push_back(UnitNode->getDoubleAttribute("pc2max"));
                     }
 
                     forEachXmlChildElement(*UnitNode, dimNode)
@@ -730,16 +733,16 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                         {
                             // "Old" style with 2 hardcoded PCs if it has "PCA_DIM"
                             jassert(is_old_style_pcs);
-                            if (pca_results.pcs.empty()) {
-                                pca_results.pcs.emplace_back();
-                                pca_results.pcs.emplace_back();
+                            if (pcs.empty()) {
+                                pcs.emplace_back();
+                                pcs.emplace_back();
                             }
-                            pca_results.pcs[0].push_back(dimNode->getDoubleAttribute("pc1"));
-                            pca_results.pcs[1].push_back(dimNode->getDoubleAttribute("pc2"));
+                            pcs[0].push_back(dimNode->getDoubleAttribute("pc1"));
+                            pcs[1].push_back(dimNode->getDoubleAttribute("pc2"));
                         } else if (dimNode->hasTagName("PC")) {
                             jassert(!is_old_style_pcs);
-                            pca_results.pc_maxes.push_back(dimNode->getDoubleAttribute("max_projection"));
-                            pca_results.pc_mins.push_back(dimNode->getDoubleAttribute("min_projection"));
+                            pc_maxes.push_back(dimNode->getDoubleAttribute("max_projection"));
+                            pc_mins.push_back(dimNode->getDoubleAttribute("min_projection"));
                             std::vector<float> pc_vector;
                             forEachXmlChildElement(*dimNode, pc_element_node)
                             {
@@ -747,14 +750,30 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                                     pc_vector.push_back(pc_element_node->getDoubleAttribute("value"));
                                 }
                             }
-                            pca_results.pcs.push_back(pc_vector);
+                            pcs.push_back(pc_vector);
+                        } else if (dimNode->hasTagName("MEAN")) {
+                            forEachXmlChildElement(*dimNode, mean_element_node)
+                            {
+                                if (mean_element_node->hasTagName("MEAN_ELEMENT")) {
+                                    mean.push_back(mean_element_node->getDoubleAttribute("value"));
+                                }
+                            }
                         }
                     }
+
+                    if (is_old_style_pcs) {
+                        // Mean is hardcoded as zero in "old" style and should not have been populated by here
+                        jassert(mean.empty());
+                        int num_samples = pcs[0].size();
+                        mean.resize(num_samples, 0.0);
+                    }
+                    PCAResults pca_results(num_pcs, pcs, mean, pc_mins, pc_maxes);
 
                     // If any of the dimensions across the various PC fields mismatch, then start fresh.
                     if (!pca_results.is_populated()) {
                         pca_results.clear();
                     }
+                    pca_sorting_.results = pca_results;
                 }
 
                 if (UnitNode->hasTagName("BOXUNIT"))
@@ -839,19 +858,24 @@ void SpikeSortBoxes::saveCustomParametersToXml(XmlElement* electrodeNode)
     pcaNode->setAttribute("waveformLength",waveformLength);
     pcaNode->setAttribute("PCAjobFinished", bPCAjobFinished);
     pcaNode->setAttribute("PCAcomputed", bPCAcomputed);
-    pcaNode->setAttribute("numPCs", results.num_pcs);
+    pcaNode->setAttribute("numPCs", results.num_pcs());
 
     if (results.is_populated()) {
-        for (int pc_idx = 0; pc_idx < results.num_pcs; pc_idx++) {
+        for (int pc_idx = 0; pc_idx < results.num_pcs(); pc_idx++) {
             XmlElement* pc = pcaNode->createNewChildElement("PC");
-            pc->setAttribute("min_projection", results.pc_mins[pc_idx]);
-            pc->setAttribute("max_projection", results.pc_maxes[pc_idx]);
+            pc->setAttribute("min_projection", results.pc_mins()[pc_idx]);
+            pc->setAttribute("max_projection", results.pc_maxes()[pc_idx]);
 
-            auto pc_vector = results.pcs[pc_idx];
+            auto pc_vector = results.pcs()[pc_idx];
             for (float k : pc_vector) {
                 XmlElement *pc_element = pc->createNewChildElement("PC_ELEMENT");
                 pc_element->setAttribute("value", k);
             }
+        }
+        XmlElement* mean = pcaNode->createNewChildElement("MEAN");
+        for (auto value : results.mean()) {
+            XmlElement *mean_element = mean->createNewChildElement("MEAN_ELEMENT");
+            mean_element->setAttribute("value", value);
         }
     }
 
@@ -936,13 +960,14 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
     if (bPCAcomputed)
     {
         so->pcProj.clear();
-        int num_pcs = pca_sorting_.results.num_pcs;
+        int num_pcs = pca_sorting_.results.num_pcs();
+        auto mean = pca_sorting_.results.mean();
         so->pcProj.resize(num_pcs, 0.0);
-        for (int pc_idx = 0; pc_idx < pca_sorting_.results.num_pcs; pc_idx++) {
+        for (int pc_idx = 0; pc_idx < pca_sorting_.results.num_pcs(); pc_idx++) {
             for (int k=0; k<so->getChannel()->getNumChannels()*so->getChannel()->getTotalSamples(); k++)
             {
                 float v = spikeDataIndexToMicrovolts(so, k);
-                so->pcProj[pc_idx] += pca_sorting_.results.pcs[pc_idx][k]* v;
+                so->pcProj[pc_idx] += pca_sorting_.results.pcs()[pc_idx][k] * (v - mean[k]);
             }
         }
     }
@@ -969,23 +994,31 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
 void SpikeSortBoxes::getPCArange(int pc_idx, float& min,float& max)
 {
     PCAResults &results = pca_sorting_.results;
-    if (results.pc_mins.size() <= pc_idx || results.pc_maxes.size() <= pc_idx) {
+    if (results.pc_mins().size() <= pc_idx || results.pc_maxes().size() <= pc_idx) {
         min = -1.0;
         max = 1.0;
     } else {
-        min = results.pc_mins[pc_idx];
-        max = results.pc_maxes[pc_idx];
+        min = results.pc_mins()[pc_idx];
+        max = results.pc_maxes()[pc_idx];
     }
 }
 
 void SpikeSortBoxes::setPCArange(int pc_idx, float min,float max)
 {
     PCAResults &results = pca_sorting_.results;
-    if (results.pc_mins.size() <= pc_idx || results.pc_maxes.size() <= pc_idx) {
+    if (results.pc_mins().size() <= pc_idx || results.pc_maxes().size() <= pc_idx) {
         return;
     }
-    results.pc_mins[pc_idx] = min;
-    results.pc_maxes[pc_idx] = max;
+    std::vector<float> new_mins = results.pc_mins();
+    std::vector<float> new_maxes = results.pc_maxes();
+    new_mins[pc_idx] = min;
+    new_maxes[pc_idx] = max;
+    pca_sorting_.results = PCAResults(
+            results.num_pcs(),
+            results.pcs(),
+            results.mean(),
+            new_mins,
+            new_maxes);
 }
 
 void SpikeSortBoxes::resetJobStatus()
@@ -1780,8 +1813,7 @@ bool PCAUnit::isPointInsidePolygon(PointD p)
 
 bool PCAUnit::isWaveFormInsidePolygon(SorterSpikePtr so)
 {
-    // Only support 2D projections with these "hand-drawn" polygons
-    return poly->isPointInside(PointD(so->pcProj[0],so->pcProj[1]));
+    return poly->isPointInside(PointD(so->pcProj));
 }
 
 void PCAUnit::resizeWaveform(int newlength)
@@ -2221,8 +2253,10 @@ void PCAjob::computeSVD()
 
     std::vector<int> sortind = sort_indexes(sig);
 
-    results_->clear();
-    int num_pcs = results_->num_pcs;
+    int num_pcs = results_->num_pcs();
+    std::vector<std::vector<float>> pcs;
+    std::vector<float> pc_mins;
+    std::vector<float> pc_maxes;
 
     for (int pc_idx = 0; pc_idx < num_pcs; pc_idx++) {
         std::vector<float> pc;
@@ -2230,7 +2264,7 @@ void PCAjob::computeSVD()
         {
             pc.push_back(eigvec[k][sortind[pc_idx]]);
         }
-        results_->pcs.push_back(pc);
+        pcs.push_back(pc);
     }
 
     // project samples to find the display range
@@ -2244,15 +2278,20 @@ void PCAjob::computeSVD()
 
             float sum = 0;
             for (int k = 0; k < dim; k++) {
-                sum += spikeDataIndexToMicrovolts(spike, k) * results_->pcs[pc_idx][k];
+                sum += spikeDataIndexToMicrovolts(spike, k) * results_->pcs()[pc_idx][k];
             }
             min = std::min(min, sum);
             max = std::max(max, sum);
         }
 
-        results_->pc_mins.push_back(min - 1.5 * (max - min));
-        results_->pc_maxes.push_back(max + 1.5 * (max - min));
+        pc_mins.push_back(min - 1.5 * (max - min));
+        pc_maxes.push_back(max + 1.5 * (max - min));
     }
+
+    // TODO: implement proper de-meaned PCA
+    std::vector<float> mean;
+    mean.resize(dim, 0.0);
+    *results_ = PCAResults(num_pcs, pcs, mean, pc_mins, pc_maxes);
 
     // clear memory
     for (int k = 0; k < dim; k++)
@@ -2381,10 +2420,11 @@ int64 SorterSpikeContainer::getTimestamp() const
 
 json PCAResults::ToJson() const {
     json ret;
-    ret["num_pcs"] = num_pcs;
-    ret["pc_mins"] = pc_mins;
-    ret["pc_maxes"] = pc_maxes;
-    for (const auto& pc_vec : pcs) {
+    ret["num_pcs"] = num_pcs_;
+    ret["pc_mins"] = pc_mins_;
+    ret["pc_maxes"] = pc_maxes_;
+    ret["mean"] = mean_;
+    for (const auto& pc_vec : pcs_) {
         ret["pcs"].push_back(pc_vec);
     }
     return ret;
@@ -2392,42 +2432,25 @@ json PCAResults::ToJson() const {
 
 bool PCAResults::FromJson(const json &value, int expected_pc_vector_samples) {
     try {
-        num_pcs = value["num_pcs"];
-    } catch (json::exception &e) {
-        std::cout << "Could not parse num_pcs as integer: " << e.what() << std::endl;
-        return false;
-    }
-
-    try {
-        pc_mins = std::vector<float>(value["pc_mins"].begin(), value["pc_mins"].end());
-    } catch (json::exception &e) {
-        std::cout << "Could not parse pc_mins as array of floats: " << e.what() << std::endl;
-        return false;
-    }
-
-    try {
-        pc_maxes = std::vector<float>(value["pc_maxes"].begin(), value["pc_maxes"].end());
-    } catch (json::exception &e) {
-        std::cout << "Could not parse pc_maxes as array of floats: " << e.what() << std::endl;
-        return false;
-    }
-
-    pcs.clear();
-    try {
+        num_pcs_ = value["num_pcs"];
+        pc_mins_ = std::vector<float>(value["pc_mins"].begin(), value["pc_mins"].end());
+        pc_maxes_ = std::vector<float>(value["pc_maxes"].begin(), value["pc_maxes"].end());
+        mean_ = std::vector<float>(value["mean"].begin(), value["mean"].end());
+        pcs_.clear();
         for (std::vector<float> pc : value["pcs"]) {
             if (pc.size() != expected_pc_vector_samples) {
                 std::cout << "Invalid PC vector length given. Need length " << expected_pc_vector_samples << std::endl;
                 return false;
             }
-            pcs.push_back(pc);
+            pcs_.push_back(pc);
         }
     } catch (json::exception &e) {
-        std::cout << "Could not parse pcs as array of array of floats: " << e.what() << std::endl;
+        std::cout << "Failed to parse JSON properly: " << e.what() << std::endl;
         return false;
     }
 
-    if (num_pcs < 2) {
-        std::cout << "Invalid number of PCs given. " << num_pcs << std::endl;
+    if (num_pcs_ < 2) {
+        std::cout << "Invalid number of PCs given. " << num_pcs_ << std::endl;
         return false;
     }
 
@@ -2440,9 +2463,9 @@ bool PCAResults::FromJson(const json &value, int expected_pc_vector_samples) {
 }
 
 cEllipse::cEllipse(const PointD &center,
-                   const std::vector<std::vector<float>> &rotation,
+                   std::vector<std::vector<float>> rotation,
                    const std::vector<float> &radii) :
-        center_(center), rotation_(rotation), radii_(radii) {
+        center_(center), rotation_(std::move(rotation)), radii_(radii) {
     jassert(!rotation.empty());
     // Rotation is NxN, radii is an Nx1 vector, and Center is an N-dim point.
     jassert(rotation.size() == radii.size());
@@ -2494,6 +2517,12 @@ void cEllipse::populate_sample_pts() {
 }
 
 bool cEllipse::isPointInside(PointD p) const {
+    if (p.dims().size() < n_dims) {
+        // "Project" the point into the proper number of dimensionsk
+        auto dims_copy = p.dims();
+        dims_copy.resize(n_dims, 0.0);
+        p = PointD(dims_copy);
+    }
     PointD centered = p - center_;
     // || rotation matrix * (pt - center) / radii ||_2 < 1?
     double norm2 = 0;
@@ -2558,9 +2587,9 @@ bool cEllipse::FromJson(const json &value) {
 Value PCASorting::ToValue() const {
     json sorting;
     sorting["results"] = results.ToJson();
-    sorting["pca_units"] = json::array();
+    sorting["units"] = json::array();
     for (const auto &unit : units) {
-        sorting["pca_units"].push_back(unit.ToJson());
+        sorting["units"].push_back(unit.ToJson());
     }
     return Value(var(sorting.dump()));
 }
@@ -2583,7 +2612,7 @@ bool PCASorting::FromValue(const Value &value, int expected_pc_vector_samples) {
     }
 
     units.clear();
-    for (const auto &unit_json : sorting["pca_units"]) {
+    for (const auto &unit_json : sorting["units"]) {
         PCAUnit unit;
         success = unit.FromJson(unit_json);
         if (!success) {
