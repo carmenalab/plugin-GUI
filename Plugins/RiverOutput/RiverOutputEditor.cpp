@@ -31,12 +31,15 @@ RiverOutputEditor::RiverOutputEditor(
 
     hostnameLabel = newStaticLabel("Hostname", 10, 25, 80, 20);
     hostnameLabelValue = newInputLabel("hostnameLabelValue", "Set the hostname for River", 15, 42, 80, 18);
+    hostnameLabelValue->addListener(this);
 
     portLabel = newStaticLabel("Port", 10, 65, 80, 20);
     portLabelValue = newInputLabel("hostnamePortValue", "Set the port for River", 15, 82, 60, 18);
+    portLabelValue->addListener(this);
 
     passwordLabel = newStaticLabel("Password", 105, 25, 100, 20);
     passwordLabelValue = newInputLabel("hostnamePasswordValue", "Set the password for River", 110, 42, 100, 18);
+    passwordLabelValue->addListener(this);
 
     optionsPanel = new Component("River Options Panel");
     // initial bounds, to be expanded
@@ -297,41 +300,6 @@ void RiverOutputEditor::refreshSchemaFromProcessor() {
             schemaList->addItem(field);
         }
     }
-}
-
-Label *RiverOutputEditor::newStaticLabel(
-        const std::string &labelText,
-        int boundsX,
-        int boundsY,
-        int boundsWidth,
-        int boundsHeight,
-        Component *parent) {
-    auto *label = new Label(labelText, labelText);
-    label->setBounds(boundsX, boundsY, boundsWidth, boundsHeight);
-    label->setFont(Font("Small Text", 12, Font::plain));
-    label->setColour(Label::textColourId, Colours::darkgrey);
-    parent->addAndMakeVisible(label);
-    return label;
-}
-
-Label *RiverOutputEditor::newInputLabel(
-        const std::string& componentName,
-        const std::string& tooltip,
-        int boundsX,
-        int boundsY,
-        int boundsWidth,
-        int boundsHeight,
-        Component *parent) {
-    auto *label = new Label(componentName, "");
-    label->setBounds(boundsX, boundsY, boundsWidth, boundsHeight);
-    label->setFont(Font("Default", 15, Font::plain));
-    label->setColour(Label::textColourId, Colours::white);
-    label->setColour(Label::backgroundColourId, Colours::grey);
-    label->setEditable(true);
-    label->addListener((Label::Listener *) parent);
-    label->setTooltip(tooltip);
-    parent->addAndMakeVisible(label);
-    return label;
 }
 
 RiverOutputCanvas::RiverOutputCanvas(GenericProcessor *n) : processor(n) {

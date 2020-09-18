@@ -70,42 +70,6 @@ private:
 
     void updateProcessorSchema();
 
-    Label *newStaticLabel(
-            const std::string& labelText,
-            int boundsX,
-            int boundsY,
-            int boundsWidth,
-            int boundsHeight) {
-        return newStaticLabel(labelText, boundsX, boundsY, boundsWidth, boundsHeight, this);
-    }
-
-    static Label *newStaticLabel(
-            const std::string& labelText,
-            int boundsX,
-            int boundsY,
-            int boundsWidth,
-            int boundsHeight,
-            Component *parent);
-
-    Label *newInputLabel(
-            const std::string &componentName,
-            const std::string &tooltip,
-            int boundsX,
-            int boundsY,
-            int boundsWidth,
-            int boundsHeight) {
-        return newInputLabel(componentName, tooltip, boundsX, boundsY, boundsWidth, boundsHeight, this);
-    }
-
-    static Label *newInputLabel(
-            const std::string &componentName,
-            const std::string &tooltip,
-            int boundsX,
-            int boundsY,
-            int boundsWidth,
-            int boundsHeight,
-            Component *parent);
-
     ScopedPointer<Label> hostnameLabel;
     ScopedPointer<Label> hostnameLabelValue;
 
@@ -143,6 +107,66 @@ private:
     ScopedPointer<UtilityButton> removeSelectedFieldButton;
 
     ScopedPointer<SchemaListBox> schemaList;
+
+    Label *newStaticLabel(
+            const std::string& labelText,
+            int boundsX,
+            int boundsY,
+            int boundsWidth,
+            int boundsHeight) {
+        return newStaticLabel(labelText, boundsX, boundsY, boundsWidth, boundsHeight, this);
+    }
+
+    static Label *newStaticLabel(
+            const std::string& labelText,
+            int boundsX,
+            int boundsY,
+            int boundsWidth,
+            int boundsHeight,
+            Component *parent) {
+        auto *label = new Label(labelText, labelText);
+        label->setBounds(boundsX, boundsY, boundsWidth, boundsHeight);
+        label->setFont(Font("Small Text", 12, Font::plain));
+        label->setColour(Label::textColourId, Colours::darkgrey);
+        parent->addAndMakeVisible(label);
+        return label;
+    }
+
+    Label *newInputLabel(
+            const std::string &componentName,
+            const std::string &tooltip,
+            int boundsX,
+            int boundsY,
+            int boundsWidth,
+            int boundsHeight) {
+        return newInputLabel(
+                componentName,
+                tooltip,
+                boundsX,
+                boundsY,
+                boundsWidth,
+                boundsHeight,
+                this);
+    }
+
+    static Label *newInputLabel(
+            const std::string &componentName,
+            const std::string &tooltip,
+            int boundsX,
+            int boundsY,
+            int boundsWidth,
+            int boundsHeight,
+            Component *parent) {
+        auto *label = new Label(componentName, "");
+        label->setBounds(boundsX, boundsY, boundsWidth, boundsHeight);
+        label->setFont(Font("Default", 15, Font::plain));
+        label->setColour(Label::textColourId, Colours::white);
+        label->setColour(Label::backgroundColourId, Colours::grey);
+        label->setEditable(true);
+        label->setTooltip(tooltip);
+        parent->addAndMakeVisible(label);
+        return label;
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RiverOutputEditor)
 };

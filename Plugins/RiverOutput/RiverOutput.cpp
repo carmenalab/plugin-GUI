@@ -79,7 +79,7 @@ void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& 
     jassert(((int) data_size == writer_->schema().sample_size()));
 
     // Assume that the binary data in the event matches the sample size exactly. If it doesn't, crashes will happen!
-    writer_->WriteBytes(ptr, data_size);
+    writer_->WriteBytes(ptr, 1);
 }
 
 void RiverOutput::parameterValueChanged(Value &, const String &) {
