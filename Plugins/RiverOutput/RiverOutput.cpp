@@ -29,7 +29,12 @@
 using json = nlohmann::json;
 
 
-RiverOutput::RiverOutput() : GenericProcessor("River Output") {
+RiverOutput::RiverOutput()
+        : GenericProcessor("River Output"),
+          spike_schema_({river::FieldDefinition("channel_index", river::FieldDefinition::INT32, 4),
+                         river::FieldDefinition("unit_index", river::FieldDefinition::INT32, 4),
+                         river::FieldDefinition("data_index", river::FieldDefinition::INT64, 8),
+                        }) {
     setProcessorType(PROCESSOR_TYPE_SINK);
 
     // Start with some sane defaults.
@@ -61,22 +66,33 @@ void RiverOutput::handleSpike(const SpikeChannel *spikeInfo, const MidiMessage &
     writer_->Write(&river_spike, 1);
 }
 
+void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& msg, int samplePosition) {
+    BinaryEventPtr event = BinaryEvent::deserializeFromMessage(msg, eventInfo);
+    if (!event) {
+        return;
+    }
+
+    const char *ptr = (const char *) event->getBinaryDataPointer();
+    size_t data_size = eventInfo->getDataSize();
+
+    // Assert (when compiled in debug) that the sizes match up.
+    jassert(((int) data_size == writer_->schema().sample_size()));
+
+    // Assume that the binary data in the event matches the sample size exactly. If it doesn't, crashes will happen!
+    writer_->WriteBytes(ptr, data_size);
+}
 
 void RiverOutput::parameterValueChanged(Value &, const String &) {
     // must be stream name; we already use the Parameter as source of truth for the rest so just ping the editor
     if (editor) {
         const MessageManagerLock mm;
-        ((RiverOutputEditor *) editor.get())->refreshLabels();
+        ((RiverOutputEditor *) editor.get())->refreshLabelsFromProcessor();
     }
 }
 
 bool RiverOutput::enable() {
     auto sn = streamName();
     if (sn.empty() || redis_connection_hostname_.empty() || redis_connection_port_ <= 0) {
-        return false;
-    }
-
-    if (getTotalSpikeChannels() == 0) {
         return false;
     }
 
@@ -91,18 +107,25 @@ bool RiverOutput::enable() {
     auto new_writer = std::make_unique<river::StreamWriter>(connection);
     writer_.swap(new_writer);
 
-    // Assume that all spike channels have the same details.
-    auto spike_channel = getSpikeChannel(0);
     std::unordered_map<std::string, std::string> metadata;
-    metadata["prepeak_samples"] = std::to_string(spike_channel->getPrePeakSamples());
-    metadata["postpeak_samples"] = std::to_string(spike_channel->getPostPeakSamples());
+    if (shouldConsumeSpikes()) {
+        if (getTotalSpikeChannels() == 0) {
+            // Can't consume spikes if there are no spike channels.
+            return false;
+        }
 
-    river::StreamSchema schema({
-        river::FieldDefinition("channel_index", river::FieldDefinition::INT32, 4),
-        river::FieldDefinition("unit_index", river::FieldDefinition::INT32, 4),
-        river::FieldDefinition("data_index", river::FieldDefinition::INT64, 8),
-    });
-    writer_->Initialize(sn, schema, metadata);
+        // Assume that all spike channels have the same details.
+        auto spike_channel = getSpikeChannel(0);
+        metadata["prepeak_samples"] = std::to_string(spike_channel->getPrePeakSamples());
+        metadata["postpeak_samples"] = std::to_string(spike_channel->getPostPeakSamples());
+    }
+
+    writer_->Initialize(sn, getSchema(), metadata);
+
+    if (editor) {
+        // GenericEditor#enable isn't marked as virtual, so need to *upcast* to VisualizerEditor :(
+        ((VisualizerEditor *) (editor.get()))->enable();
+    }
 
     return true;
 }
@@ -118,11 +141,19 @@ bool RiverOutput::disable() {
 
 
 void RiverOutput::process(AudioSampleBuffer &buffer) {
-    checkForEvents(true);
+    checkForEvents(shouldConsumeSpikes());
 }
 
-std::string RiverOutput::streamName() {
+std::string RiverOutput::streamName() const {
     return stream_name_->getValue(0).toString().toStdString();
+}
+
+int64_t RiverOutput::totalSamplesWritten() const {
+    if (writer_) {
+        return writer_->total_samples_written();
+    } else {
+        return 0;
+    }
 }
 
 const std::string &RiverOutput::redisConnectionHostname() const {
@@ -149,11 +180,16 @@ void RiverOutput::setRedisConnectionPassword(const std::string &redisConnectionP
     redis_connection_password_ = redisConnectionPassword;
 }
 
-void RiverOutput::saveCustomParametersToXml (XmlElement* parentElement) {
+void RiverOutput::saveCustomParametersToXml(XmlElement *parentElement) {
     XmlElement *mainNode = parentElement->createNewChildElement("RiverOutput");
     mainNode->setAttribute("hostname", redisConnectionHostname());
     mainNode->setAttribute("port", redisConnectionPort());
     mainNode->setAttribute("password", redisConnectionPassword());
+
+    if (event_schema_) {
+        std::string event_schema_json = event_schema_->ToJson();
+        mainNode->setAttribute("event_schema_json", event_schema_json);
+    }
 }
 
 void RiverOutput::loadCustomParametersFromXml() {
@@ -169,5 +205,34 @@ void RiverOutput::loadCustomParametersFromXml() {
         redis_connection_hostname_ = mainNode->getStringAttribute("hostname", "127.0.0.1").toStdString();
         redis_connection_port_ = mainNode->getIntAttribute("port", 6379);
         redis_connection_password_ = mainNode->getStringAttribute("password", "").toStdString();
+        if (mainNode->hasAttribute("event_schema_json")) {
+            String j = mainNode->getStringAttribute("event_schema_json");
+            const river::StreamSchema& schema = river::StreamSchema::FromJson(j.toStdString());
+            setEventSchema(schema);
+        } else {
+            clearEventSchema();
+        }
     }
+
+    ((RiverOutputEditor *) editor.get())->refreshSchemaFromProcessor();
+}
+
+void RiverOutput::setEventSchema(const river::StreamSchema& eventSchema) {
+    auto p = std::make_shared<river::StreamSchema>(eventSchema);
+    event_schema_.swap(p);
+}
+
+void RiverOutput::clearEventSchema() {
+    event_schema_.reset();
+}
+
+bool RiverOutput::shouldConsumeSpikes() const {
+    return !event_schema_;
+}
+
+river::StreamSchema RiverOutput::getSchema() const {
+    if (event_schema_) {
+        return *event_schema_;
+    }
+    return spike_schema_;
 }

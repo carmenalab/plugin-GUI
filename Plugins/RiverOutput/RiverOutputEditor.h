@@ -26,9 +26,15 @@
 
 
 #include <EditorHeaders.h>
+#include <VisualizerEditorHeaders.h>
+#include <VisualizerWindowHeaders.h>
 #include "RiverOutput.h"
+#include "SchemaListBox.h"
 
 class ImageIcon;
+
+class RiverOutputCanvas;
+
 
 /**
 
@@ -36,38 +42,69 @@ class ImageIcon;
 
   @see RiverOutput
 */
-
-class RiverOutputEditor : public GenericEditor,
-                          public Label::Listener {
+class RiverOutputEditor : public VisualizerEditor,
+                          public Label::Listener,
+                          public ComboBox::Listener {
 public:
     RiverOutputEditor(GenericProcessor *parentNode, bool useDefaultParameterEditors);
 
     ~RiverOutputEditor() override = default;
 
-    void labelTextChanged(Label* label) override;
+    Visualizer* createNewCanvas() override;
 
-    void refreshLabels();
+    // UI listeners
+    void labelTextChanged(Label* label) override;
+    void comboBoxChanged(ComboBox *comboBoxThatHasChanged) override;
+    void buttonEvent(Button* button) override;
+
+    // Non-overrides:
+    void refreshLabelsFromProcessor();
+    void refreshSchemaFromProcessor();
+
+    Component *getOptionsPanel() {
+        return optionsPanel.get();
+    }
 
 private:
     ImageIcon* icon;
+
+    void updateProcessorSchema();
 
     Label *newStaticLabel(
             const std::string& labelText,
             int boundsX,
             int boundsY,
             int boundsWidth,
-            int boundsHeight);
+            int boundsHeight) {
+        return newStaticLabel(labelText, boundsX, boundsY, boundsWidth, boundsHeight, this);
+    }
 
-    Label *newInputLabel(
-            const std::string& componentName,
-            const std::string& tooltip,
+    static Label *newStaticLabel(
+            const std::string& labelText,
             int boundsX,
             int boundsY,
             int boundsWidth,
-            int boundsHeight);
+            int boundsHeight,
+            Component *parent);
 
-    ScopedPointer<Label> streamNameLabel;
-    ScopedPointer<Label> streamNameLabelValue;
+    Label *newInputLabel(
+            const std::string &componentName,
+            const std::string &tooltip,
+            int boundsX,
+            int boundsY,
+            int boundsWidth,
+            int boundsHeight) {
+        return newInputLabel(componentName, tooltip, boundsX, boundsY, boundsWidth, boundsHeight, this);
+    }
+
+    static Label *newInputLabel(
+            const std::string &componentName,
+            const std::string &tooltip,
+            int boundsX,
+            int boundsY,
+            int boundsWidth,
+            int boundsHeight,
+            Component *parent);
 
     ScopedPointer<Label> hostnameLabel;
     ScopedPointer<Label> hostnameLabelValue;
@@ -79,10 +116,58 @@ private:
     ScopedPointer<Label> passwordLabel;
     ScopedPointer<Label> passwordLabelValue;
 
+    // OPTIONS PANEL
+    RiverOutputCanvas* canvas;
+    ScopedPointer<Component> optionsPanel;
+    ScopedPointer<Label> optionsPanelTitle;
+    ScopedPointer<Label> inputTypeTitle;
+
+    ScopedPointer<Label> streamNameLabel;
+    ScopedPointer<Label> streamNameLabelValue;
+
+    ScopedPointer<Label> totalSamplesWrittenLabel;
+    ScopedPointer<Label> totalSamplesWrittenLabelValue;
+
+    // OPTIONS PANEL: Input Type
+    const int inputTypeRadioId = 1;
+    ScopedPointer<ToggleButton> inputTypeSpikeButton;
+    ScopedPointer<ToggleButton> inputTypeEventButton;
+
+    ScopedPointer<Label> fieldNameLabel;
+    ScopedPointer<Label> fieldNameLabelValue;
+
+    ScopedPointer<Label> fieldTypeLabel;
+    ScopedPointer<ComboBox> fieldTypeComboBox;
+
+    ScopedPointer<UtilityButton> addFieldButton;
+    ScopedPointer<UtilityButton> removeSelectedFieldButton;
+
+    ScopedPointer<SchemaListBox> schemaList;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RiverOutputEditor)
 };
 
+class RiverOutputCanvas : public Visualizer {
+public:
+    explicit RiverOutputCanvas(GenericProcessor *n);
+    ~RiverOutputCanvas() override = default;
 
+    void refreshState() override;
+    void update() override;
+    void refresh() override;
+    void beginAnimation() override;
+    void endAnimation() override;
+    void setParameter(int, float) override;
+    void setParameter(int, int, int, float) override;
+    void paint(Graphics& g) override;
+    void resized() override;
+
+private:
+    ScopedPointer<Viewport> viewport;
+    GenericProcessor* processor;
+    RiverOutputEditor* editor;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RiverOutputCanvas)
+};
 
 
 #endif  // __RIVEROUTPUTEDITOR_H_28EB4CC9__

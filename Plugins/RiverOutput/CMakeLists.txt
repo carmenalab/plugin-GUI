@@ -11,7 +11,8 @@ add_sources(${PLUGIN_NAME}
   RiverOutput.h
   RiverOutputEditor.cpp
   RiverOutputEditor.h
-  )
+  SchemaListBox.h
+)
 
 # ===== External Dependency: river
 configure_file(CMakeLists.txt.in.river river-download/CMakeLists.txt)
