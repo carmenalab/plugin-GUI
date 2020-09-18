@@ -43,6 +43,7 @@ public:
     void process(AudioSampleBuffer &buffer) override;
 
     void handleSpike(const SpikeChannel *spikeInfo, const MidiMessage &event, int samplePosition) override;
+    void handleEvent(const EventChannel* eventInfo, const MidiMessage& event, int samplePosition = 0) override;
 
     /** Called immediately prior to the start of data acquisition. */
     bool enable() override;
@@ -71,17 +72,28 @@ public:
     const std::string &redisConnectionPassword() const;
     void setRedisConnectionPassword(const std::string &redisConnectionPassword);
 
-    std::string streamName();
+    void setEventSchema(const river::StreamSchema& eventSchema);
+    void clearEventSchema();
+    bool shouldConsumeSpikes() const;
+
+    river::StreamSchema getSchema() const;
+
+    std::string streamName() const;
+    int64_t totalSamplesWritten() const;
+
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RiverOutput)
 
+    // For writing spikes to River. Ensure it's packed so that padding doesn't mess up the size of the struct.
     typedef struct RiverSpike {
         int32_t channel_index;
         int32_t unit_index;
         int64_t data_index;
     } __attribute__((__packed__)) RiverSpike;
+    const river::StreamSchema spike_schema_;
 
-    const river::StreamSchema &schema();
+    // If this is set, then we should listen to events, not spikes.
+    std::shared_ptr<river::StreamSchema> event_schema_;
 
     std::unique_ptr<river::StreamWriter> writer_;
 
@@ -91,6 +103,7 @@ private:
     std::string redis_connection_hostname_;
     int redis_connection_port_;
     std::string redis_connection_password_;
+
 };
 
 
