@@ -312,6 +312,12 @@ private:
         std::vector<json> parameters_json;
         parameters_to_json(processor, &parameters_json);
         (*processor_json)["parameters"] = parameters_json;
+
+        if (processor->getSourceNode() == nullptr) {
+            (*processor_json)["predecessor"] = json::value_t::null;
+        } else {
+            (*processor_json)["predecessor"] = processor->getSourceNode()->getNodeId();
+        }
     }
 
     inline GenericProcessor *find_processor(const std::string &id_string) {
