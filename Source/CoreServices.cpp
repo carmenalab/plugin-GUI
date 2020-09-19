@@ -103,6 +103,11 @@ namespace CoreServices
 		return getProcessorGraph()->getGlobalSampleRate(true);
 	}
 
+    String getRecordingDirectory()
+    {
+        return getControlPanel()->getRecordingDirectory();
+    }
+
 	void setRecordingDirectory(String dir)
 	{
 		getControlPanel()->setRecordingDirectory(dir);

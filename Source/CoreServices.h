@@ -78,6 +78,9 @@ PLUGIN_API juce::int64 getSoftwareTimestamp();
 /** Gets the ticker frequency of the software timestamp clock*/
 PLUGIN_API float getSoftwareSampleRate();
 
+/** Retrieves the current recording directory */
+PLUGIN_API String getRecordingDirectory();
+
 /** Set new recording directory */
 PLUGIN_API void setRecordingDirectory(String dir);
 

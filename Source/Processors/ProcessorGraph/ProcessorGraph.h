@@ -71,7 +71,7 @@ public:
     void enableHttpServer();
     void disableHttpServer();
 
-    RecordNode* getRecordNode();
+    RecordNode* getRecordNode() const;
     AudioNode* getAudioNode();
     MessageCenter* getMessageCenter();
 

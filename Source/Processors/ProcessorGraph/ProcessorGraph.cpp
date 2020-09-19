@@ -754,7 +754,7 @@ AudioNode* ProcessorGraph::getAudioNode()
 
 }
 
-RecordNode* ProcessorGraph::getRecordNode()
+RecordNode* ProcessorGraph::getRecordNode() const
 {
 
     Node* node = getNodeForId(RECORD_NODE_ID);
