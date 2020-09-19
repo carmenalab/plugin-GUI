@@ -141,7 +141,9 @@ bool RiverOutput::disable() {
 
 
 void RiverOutput::process(AudioSampleBuffer &buffer) {
-    checkForEvents(shouldConsumeSpikes());
+    if (writer_) {
+        checkForEvents(shouldConsumeSpikes());
+    }
 }
 
 std::string RiverOutput::streamName() const {

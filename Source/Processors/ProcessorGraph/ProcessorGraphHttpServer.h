@@ -57,21 +57,28 @@ public:
             juce::Thread("HttpServer") {}
 
     void run() override {
-        svr_->Get("/api/status", [](const httplib::Request &, httplib::Response &res) {
+        svr_->Get("/api/status", [this](const httplib::Request &, httplib::Response &res) {
             json ret;
-            status_to_json(&ret);
+            status_to_json(graph_, &ret);
             res.set_content(ret.dump(), "application/json");
         });
-        svr_->Put("/api/status", [](const httplib::Request &req, httplib::Response &res) {
+        svr_->Put("/api/status", [this](const httplib::Request &req, httplib::Response &res) {
             std::string desired_mode;
+            std::string desired_data_parent_dir;
             try {
                 json request_json;
                 request_json = json::parse(req.body);
                 desired_mode = request_json["mode"];
+                desired_data_parent_dir = request_json["data_parent_dir"];
             } catch (json::exception &e) {
                 res.set_content(e.what(), "text/plain");
                 res.status = 400;
                 return;
+            }
+
+            if (desired_data_parent_dir != CoreServices::getRecordingDirectory()) {
+                const MessageManagerLock mmLock;
+                CoreServices::setRecordingDirectory(desired_data_parent_dir);
             }
 
             if (desired_mode == "RECORD" && !CoreServices::getRecordingStatus()) {
@@ -88,7 +95,7 @@ public:
             }
 
             json ret;
-            status_to_json(&ret);
+            status_to_json(graph_, &ret);
             res.set_content(ret.dump(), "application/json");
         });
         svr_->Get("/api/processors", [this](const httplib::Request &, httplib::Response &res) {
@@ -256,13 +263,32 @@ private:
         }
     }
 
-    inline static void status_to_json(json *ret) {
+    inline static String getCurrentDataDir(const ProcessorGraph *graph) {
+        if (graph->getRecordNode()) {
+            auto path = graph->getRecordNode()->getDataDirectory().getFullPathName();
+            if (!path.isEmpty()) {
+                return path.toStdString();
+            }
+        }
+        return "";
+    }
+
+    inline static void status_to_json(const ProcessorGraph *graph, json *ret) {
         if (CoreServices::getRecordingStatus()) {
             (*ret)["mode"] = "RECORD";
         } else if (CoreServices::getAcquisitionStatus()) {
             (*ret)["mode"] = "ACQUIRE";
         } else {
             (*ret)["mode"] = "IDLE";
+        }
+
+        (*ret)["data_parent_dir"] = CoreServices::getRecordingDirectory().toStdString();
+
+        auto current_data_dir = getCurrentDataDir(graph);
+        if (current_data_dir.isEmpty()) {
+            (*ret)["data_dir"] = json::value_t::null;
+        } else {
+            (*ret)["data_dir"] = current_data_dir.toStdString();
         }
     }
 

@@ -494,6 +494,12 @@ bool ControlPanel::getRecordingState()
 
 }
 
+String ControlPanel::getRecordingDirectory()
+{
+    return filenameComponent->getCurrentFile().getFullPathName();
+}
+
+
 void ControlPanel::setRecordingDirectory(String path)
 {
     File newFile(path);
