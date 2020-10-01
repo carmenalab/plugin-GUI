@@ -14,43 +14,25 @@ add_sources(${PLUGIN_NAME}
   SchemaListBox.h
 )
 
+include(FetchContent)
+
 # ===== External Dependency: river
-configure_file(CMakeLists.txt.in.river river-download/CMakeLists.txt)
-execute_process(COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}" .
-  RESULT_VARIABLE result
-  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/river-download )
-if(result)
-  message(FATAL_ERROR "CMake step for river failed: ${result}")
-endif()
-execute_process(COMMAND ${CMAKE_COMMAND} --build .
-  RESULT_VARIABLE result
-  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/river-download )
-if(result)
-  message(FATAL_ERROR "Build step for river failed: ${result}")
-endif()
-add_subdirectory(${CMAKE_CURRENT_BINARY_DIR}/river-src
-  ${CMAKE_CURRENT_BINARY_DIR}/river-build
-  EXCLUDE_FROM_ALL)
+FetchContent_Declare(
+  river
+  GIT_REPOSITORY    https://github.com/pbotros/river.git
+  GIT_TAG           master
+  GIT_SHALLOW       1
+)
+FetchContent_MakeAvailable(river)
 
 # ===== External Dependency: json
-if (NOT TARGET nlohmann_json::nlohmann_json)
-  configure_file(CMakeLists.txt.in.json json-download/CMakeLists.txt)
-  execute_process(COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}" .
-          RESULT_VARIABLE result
-          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/json-download )
-  if(result)
-    message(FATAL_ERROR "CMake step for json failed: ${result}")
-  endif()
-  execute_process(COMMAND ${CMAKE_COMMAND} --build .
-          RESULT_VARIABLE result
-          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/json-download )
-  if(result)
-    message(FATAL_ERROR "Build step for json failed: ${result}")
-  endif()
-  add_subdirectory(${CMAKE_CURRENT_BINARY_DIR}/json-src
-          ${CMAKE_CURRENT_BINARY_DIR}/json-build
-          EXCLUDE_FROM_ALL)
-endif()
+FetchContent_Declare(
+  json
+  GIT_REPOSITORY    https://github.com/nlohmann/json.git
+  GIT_TAG           v3.9.1
+  GIT_SHALLOW       1
+)
+FetchContent_MakeAvailable(json)
 
 target_link_libraries(${PLUGIN_NAME} river nlohmann_json::nlohmann_json)
 
