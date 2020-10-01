@@ -66,7 +66,7 @@ void RiverOutput::handleSpike(const SpikeChannel *spikeInfo, const MidiMessage &
     writer_->Write(&river_spike, 1);
 }
 
-void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& msg, int samplePosition) {
+void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& msg, int) {
     BinaryEventPtr event = BinaryEvent::deserializeFromMessage(msg, eventInfo);
     if (!event) {
         return;

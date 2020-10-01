@@ -43,7 +43,7 @@ public:
     void process(AudioSampleBuffer &buffer) override;
 
     void handleSpike(const SpikeChannel *spikeInfo, const MidiMessage &event, int samplePosition) override;
-    void handleEvent(const EventChannel* eventInfo, const MidiMessage& event, int samplePosition = 0) override;
+    void handleEvent(const EventChannel* eventInfo, const MidiMessage& event, int samplePosition) override;
 
     /** Called immediately prior to the start of data acquisition. */
     bool enable() override;
