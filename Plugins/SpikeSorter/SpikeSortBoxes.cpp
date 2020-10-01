@@ -1839,6 +1839,8 @@ bool PCAUnit::FromJson(const json &value) {
     try {
         UnitID = value["id"];
         localID = value["local_id"];
+        BoxUnit::setDefaultColors(ColorRGB, localID);
+
         if (value["shape"]["type"] == "POLYGON") {
             poly = std::make_shared<cPolygon>();
         } else if (value["shape"]["type"] == "ELLIPSE") {

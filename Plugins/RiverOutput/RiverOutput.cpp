@@ -217,6 +217,7 @@ void RiverOutput::loadCustomParametersFromXml() {
     }
 
     ((RiverOutputEditor *) editor.get())->refreshSchemaFromProcessor();
+    ((RiverOutputEditor *) editor.get())->refreshLabelsFromProcessor();
 }
 
 void RiverOutput::setEventSchema(const river::StreamSchema& eventSchema) {
