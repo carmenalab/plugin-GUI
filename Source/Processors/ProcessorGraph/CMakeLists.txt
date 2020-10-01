@@ -14,6 +14,7 @@ include(FetchContent)
 cmake_policy(SET CMP0079 NEW)
 set(HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF)
 set(HTTPLIB_USE_ZLIB_IF_AVAILABLE OFF)
+set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF)
 FetchContent_Declare(
   httplib
   GIT_REPOSITORY    https://github.com/yhirose/cpp-httplib.git
