@@ -20,6 +20,7 @@ add_sources(${PLUGIN_NAME}
 include(FetchContent)
 
 # ===== External Dependency: TCrosser
+SET(BUILD_TCROSSER ON)
 FetchContent_Declare(
   tcrosser
   GIT_REPOSITORY    git@github.com:carmenalab/c.git
