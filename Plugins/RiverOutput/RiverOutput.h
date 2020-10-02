@@ -37,13 +37,11 @@ public:
     void run() override;
 
     void enqueue(const char *data, int num_samples);
-    void shutdownGracefully();
 private:
     std::unique_ptr<AbstractFifo> writing_queue_;
     std::vector<char> buffer_;
     int batch_period_ms_;
     int sample_size_;
-    bool should_stop_;
     std::shared_ptr<river::StreamWriter> writer_;
 };
 
@@ -119,6 +117,8 @@ private:
 
     // Access this via method instead of raw
     Parameter *stream_name_;
+    Parameter *channel_mapping_json_;
+    std::unordered_map<int, int> channel_mapping_;
 
     std::string redis_connection_hostname_;
     int redis_connection_port_;
