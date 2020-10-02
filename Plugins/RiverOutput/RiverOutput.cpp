@@ -25,6 +25,7 @@
 #include "RiverOutputEditor.h"
 #include <nlohmann/json.hpp>
 #include <memory>
+#include <unordered_map>
 
 using json = nlohmann::json;
 
@@ -44,6 +45,10 @@ RiverOutput::RiverOutput()
     stream_name_ = new Parameter("stream_name", juce::String(""), 0, true);
     stream_name_->addListener(this);
     parameters.add(stream_name_);
+
+    channel_mapping_json_ = new Parameter("channel_mapping_json", juce::String(""), 0, true);
+    channel_mapping_json_->addListener(this);
+    parameters.add(channel_mapping_json_);
 }
 
 
@@ -60,7 +65,11 @@ void RiverOutput::handleSpike(const SpikeChannel *spikeInfo, const MidiMessage &
     }
 
     RiverSpike river_spike;
-    river_spike.channel_index = getSpikeChannelIndex(spike);
+    int channel_index = getSpikeChannelIndex(spike);
+    if (channel_mapping_.find(channel_index) != channel_mapping_.end()) {
+        channel_index = channel_mapping_[channel_index];
+    }
+    river_spike.channel_index = channel_index;
     river_spike.data_index = spike->getTimestamp();
     river_spike.unit_index = ((int) spike->getSortedID()) - 1;
     writing_thread_->enqueue(reinterpret_cast<const char *>(&river_spike), 1);
@@ -82,11 +91,33 @@ void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& 
     writing_thread_->enqueue(ptr, 1);
 }
 
-void RiverOutput::parameterValueChanged(Value &, const String &) {
-    // must be stream name; we already use the Parameter as source of truth for the rest so just ping the editor
-    if (editor) {
-        const MessageManagerLock mm;
-        ((RiverOutputEditor *) editor.get())->refreshLabelsFromProcessor();
+void RiverOutput::parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) {
+    if (parameterName == "stream_name") {
+        if (editor) {
+            // We already use the Parameter as source of truth for the rest so just ping the editor
+            const MessageManagerLock mm;
+            ((RiverOutputEditor *) editor.get())->refreshLabelsFromProcessor();
+        }
+    } else if (parameterName == "channel_mapping_json") {
+        std::string json_str = channel_mapping_json_->getValue(0).toString().toStdString();
+        if (!json_str.empty()) {
+            try {
+                json j = json::parse(json_str);
+                std::unordered_map<int, int> new_map;
+                for (const auto& kv : j.items()) {
+                    int from_ch = std::stoi(kv.key());
+                    int to_ch = kv.value();
+                    std::pair<int, int> p(from_ch, to_ch);
+                    new_map.insert(p);
+                }
+                channel_mapping_ = new_map;
+            } catch (const json::exception& e) {
+                std::cout << "Failed to parse: "  << e.what() << std::endl;
+                channel_mapping_json_->setValue(valueThatWasChanged.getValue(), 0);
+            }
+        } else {
+            channel_mapping_.clear();
+        }
     }
 }
 
@@ -137,8 +168,8 @@ bool RiverOutput::enable() {
 
 bool RiverOutput::disable() {
     if (writing_thread_) {
-        writing_thread_->shutdownGracefully();
         writing_thread_->stopThread(1000);
+        writing_thread_.reset();
     }
     if (writer_) {
         writer_->Stop();
@@ -255,7 +286,6 @@ RiverWriterThread::RiverWriterThread(
         : juce::Thread("RiverWriter") {
     writer_ = writer;
     writing_queue_ = std::make_unique<AbstractFifo>(capacity_samples);
-    should_stop_ = false;
     batch_period_ms_ = batch_period_ms;
 
     sample_size_ = writer_->schema().sample_size();
@@ -265,7 +295,7 @@ RiverWriterThread::RiverWriterThread(
 
 void RiverWriterThread::run() {
     int start1, size1, start2, size2;
-    while (!should_stop_) {
+    while (!threadShouldExit()) {
         auto start = Time::getMillisecondCounter();
         writing_queue_->prepareToRead(writing_queue_->getNumReady(),
                                       start1,
@@ -300,8 +330,4 @@ void RiverWriterThread::enqueue(const char *data, int num_samples) {
     }
     jassert(size1 + size2 == num_samples);
     writing_queue_->finishedWrite(size1 + size2);
-}
-
-void RiverWriterThread::shutdownGracefully() {
-    should_stop_ = true;
 }
