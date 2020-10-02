@@ -63,7 +63,7 @@ void RiverOutput::handleSpike(const SpikeChannel *spikeInfo, const MidiMessage &
     river_spike.channel_index = getSpikeChannelIndex(spike);
     river_spike.data_index = spike->getTimestamp();
     river_spike.unit_index = ((int) spike->getSortedID()) - 1;
-    writer_->Write(&river_spike, 1);
+    writing_thread_->enqueue(reinterpret_cast<const char *>(&river_spike), 1);
 }
 
 void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& msg, int) {
@@ -79,7 +79,7 @@ void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& 
     jassert(((int) data_size == writer_->schema().sample_size()));
 
     // Assume that the binary data in the event matches the sample size exactly. If it doesn't, crashes will happen!
-    writer_->WriteBytes(ptr, 1);
+    writing_thread_->enqueue(ptr, 1);
 }
 
 void RiverOutput::parameterValueChanged(Value &, const String &) {
@@ -104,8 +104,7 @@ bool RiverOutput::enable() {
             redis_connection_password_);
 
     // TODO: what happens if invalid redis connection?
-    auto new_writer = std::make_unique<river::StreamWriter>(connection);
-    writer_.swap(new_writer);
+    writer_ = std::make_shared<river::StreamWriter>(connection);
 
     std::unordered_map<std::string, std::string> metadata;
     if (shouldConsumeSpikes()) {
@@ -118,9 +117,7 @@ bool RiverOutput::enable() {
         auto spike_channel = getSpikeChannel(0);
         metadata["prepeak_samples"] = std::to_string(spike_channel->getPrePeakSamples());
         metadata["postpeak_samples"] = std::to_string(spike_channel->getPostPeakSamples());
-        if (getSourceNode() != nullptr) {
-            metadata["sampling_rate"] = std::to_string(getSourceNode()->getSampleRate(0));
-        }
+        metadata["sampling_rate"] = std::to_string(CoreServices::getGlobalSampleRate());
     }
 
     writer_->Initialize(sn, getSchema(), metadata);
@@ -130,11 +127,19 @@ bool RiverOutput::enable() {
         ((VisualizerEditor *) (editor.get()))->enable();
     }
 
+    // Capacity should be large so to not lose data
+    writing_thread_ = std::make_unique<RiverWriterThread>(writer_, 4096, 5);
+    writing_thread_->startThread();
+
     return true;
 }
 
 
 bool RiverOutput::disable() {
+    if (writing_thread_) {
+        writing_thread_->shutdownGracefully();
+        writing_thread_->stopThread(1000);
+    }
     if (writer_) {
         writer_->Stop();
         writer_.reset();
@@ -241,4 +246,62 @@ river::StreamSchema RiverOutput::getSchema() const {
         return *event_schema_;
     }
     return spike_schema_;
+}
+
+RiverWriterThread::RiverWriterThread(
+        const std::shared_ptr<river::StreamWriter> &writer,
+        int capacity_samples,
+        int batch_period_ms)
+        : juce::Thread("RiverWriter") {
+    writer_ = writer;
+    writing_queue_ = std::make_unique<AbstractFifo>(capacity_samples);
+    should_stop_ = false;
+    batch_period_ms_ = batch_period_ms;
+
+    sample_size_ = writer_->schema().sample_size();
+
+    buffer_.resize(capacity_samples * sample_size_);
+}
+
+void RiverWriterThread::run() {
+    int start1, size1, start2, size2;
+    while (!should_stop_) {
+        auto start = Time::getMillisecondCounter();
+        writing_queue_->prepareToRead(writing_queue_->getNumReady(),
+                                      start1,
+                                      size1,
+                                      start2,
+                                      size2);
+
+        if (size1 > 0) {
+            writer_->WriteBytes(&buffer_.front() + start1 * sample_size_, size1);
+        }
+
+        if (size2 > 0) {
+            writer_->WriteBytes(&buffer_.front() + start2 * sample_size_, size2);
+        }
+
+        writing_queue_->finishedRead(size1 + size2);
+
+        Time::waitForMillisecondCounter(start + batch_period_ms_);
+    }
+}
+
+void RiverWriterThread::enqueue(const char *data, int num_samples) {
+    int start1, size1, start2, size2;
+    writing_queue_->prepareToWrite(num_samples, start1, size1, start2, size2);
+
+    if (size1 > 0) {
+        memcpy(&buffer_.front() + start1 * sample_size_, data, size1 * sample_size_);
+    }
+
+    if (size2 > 0) {
+        memcpy(&buffer_.front() + start2 * sample_size_, data + size1 * sample_size_, size2 * sample_size_);
+    }
+    jassert(size1 + size2 == num_samples);
+    writing_queue_->finishedWrite(size1 + size2);
+}
+
+void RiverWriterThread::shutdownGracefully() {
+    should_stop_ = true;
 }
