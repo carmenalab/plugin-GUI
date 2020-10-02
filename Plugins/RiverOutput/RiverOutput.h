@@ -27,6 +27,25 @@
 #include <ProcessorHeaders.h>
 #include <river/river.h>
 
+class RiverWriterThread : public juce::Thread {
+public:
+    RiverWriterThread(const std::shared_ptr<river::StreamWriter> &writer,
+                      int capacity_samples,
+                      int batch_period_ms);
+    ~RiverWriterThread() override = default;
+
+    void run() override;
+
+    void enqueue(const char *data, int num_samples);
+    void shutdownGracefully();
+private:
+    std::unique_ptr<AbstractFifo> writing_queue_;
+    std::vector<char> buffer_;
+    int batch_period_ms_;
+    int sample_size_;
+    bool should_stop_;
+    std::shared_ptr<river::StreamWriter> writer_;
+};
 
 /**
  *  TODO
@@ -95,7 +114,8 @@ private:
     // If this is set, then we should listen to events, not spikes.
     std::shared_ptr<river::StreamSchema> event_schema_;
 
-    std::unique_ptr<river::StreamWriter> writer_;
+    std::shared_ptr<river::StreamWriter> writer_;
+    std::unique_ptr<RiverWriterThread> writing_thread_;
 
     // Access this via method instead of raw
     Parameter *stream_name_;
