@@ -34,6 +34,7 @@ CAREditor::CAREditor (GenericProcessor* parentProcessor, bool useDefaultParamete
     : GenericEditor (parentProcessor, useDefaultParameterEditors)
     , m_currentChannelsView          (REFERENCE_CHANNELS)
     , m_channelSelectorButtonManager (new LinearButtonGroupManager)
+    , m_modeSelectorButtonManager    (new LinearButtonGroupManager)
     , m_gainSlider                   (new ParameterSlider (0.0, 100.0, 100.0, Font("Default", 13.f, Font::plain)))
 {
     TextButton* referenceChannelsButton = new TextButton ("Reference", "Switch to reference channels");
@@ -60,6 +61,32 @@ CAREditor::CAREditor (GenericProcessor* parentProcessor, bool useDefaultParamete
     m_channelSelectorButtonManager->setColour (ButtonGroupManager::outlineColourId,      Colour (0x0));
     m_channelSelectorButtonManager->setColour (LinearButtonGroupManager::accentColourId, COLOUR_ACCENT);
     addAndMakeVisible (m_channelSelectorButtonManager);
+
+    m_meanModeButton = new TextButton ("Mean", "Switch mode to compute mean");
+    m_meanModeButton->setClickingTogglesState (true);
+    m_meanModeButton->setToggleState (true, dontSendNotification);
+    m_meanModeButton->setColour (TextButton::buttonColourId,     Colour (0x0));
+    m_meanModeButton->setColour (TextButton::buttonOnColourId,   Colour (0x0));
+    m_meanModeButton->setColour (TextButton::textColourOffId,    COLOUR_PRIMARY);
+    m_meanModeButton->setColour (TextButton::textColourOnId,     COLOUR_ACCENT);
+
+    m_medianModeButton  = new TextButton ("Median", "Switch mode to compute median");
+    m_medianModeButton->setClickingTogglesState (true);
+    m_medianModeButton->setColour (TextButton::buttonColourId,     Colour (0x0));
+    m_medianModeButton->setColour (TextButton::buttonOnColourId,   Colour (0x0));
+    m_medianModeButton->setColour (TextButton::textColourOffId,    COLOUR_PRIMARY);
+    m_medianModeButton->setColour (TextButton::textColourOnId,     COLOUR_ACCENT);
+
+    m_modeSelectorButtonManager->addButton (m_meanModeButton);
+    m_modeSelectorButtonManager->addButton (m_medianModeButton);
+    m_modeSelectorButtonManager->setRadioButtonMode (true);
+    m_modeSelectorButtonManager->setButtonListener (this);
+    m_modeSelectorButtonManager->setButtonsLookAndFeel (m_materialButtonLookAndFeel);
+    m_modeSelectorButtonManager->setColour (ButtonGroupManager::backgroundColourId,   Colours::white);
+    m_modeSelectorButtonManager->setColour (ButtonGroupManager::outlineColourId,      Colour (0x0));
+    m_modeSelectorButtonManager->setColour (LinearButtonGroupManager::accentColourId, COLOUR_ACCENT);
+    addAndMakeVisible (m_modeSelectorButtonManager);
+
 
     m_gainSlider->setColour (Slider::rotarySliderFillColourId, Colour::fromRGB (255, 193, 7));
     m_gainSlider->setName ("Gain (%)");
@@ -93,7 +120,12 @@ void CAREditor::paint (Graphics& g)
 
 void CAREditor::resized()
 {
-    m_channelSelectorButtonManager->setBounds (110, 50, 150, 36);
+    m_channelSelectorButtonManager->setBounds (110, 30, 150, 36);
+    m_modeSelectorButtonManager->setBounds(
+            110,
+            m_channelSelectorButtonManager->getY() + m_channelSelectorButtonManager->getHeight() + 18,
+            150,
+            36);
 
     m_gainSlider->setBounds (15, 30, 80, 80);
 
@@ -118,6 +150,14 @@ void CAREditor::buttonClicked (Button* buttonThatWasClicked)
         channelSelector->setActiveChannels (static_cast<CAR*> (getProcessor())->getAffectedChannels());
 
         m_currentChannelsView = AFFECTED_CHANNELS;
+    }
+    else if (buttonName.startsWith ("mean"))
+    {
+        ((CAR *) getProcessor())->setMode(CAR::Mode::MEAN);
+    }
+    else if (buttonName.startsWith ("median"))
+    {
+        ((CAR *) getProcessor())->setMode(CAR::Mode::MEDIAN);
     }
 
     GenericEditor::buttonClicked (buttonThatWasClicked);
@@ -153,6 +193,14 @@ void CAREditor::saveCustomParameters(XmlElement* xml)
 
     XmlElement* paramValues = xml->createNewChildElement("VALUES");
     paramValues->setAttribute("gainLevel", processor->getGainLevel());
+    switch (processor->getMode()) {
+        case CAR::Mode::MEAN:
+            paramValues->setAttribute("mode", "MEAN");
+            break;
+        case CAR::Mode::MEDIAN:
+            paramValues->setAttribute("mode", "MEDIAN");
+            break;
+    }
 }
 
 void CAREditor::loadCustomParameters(XmlElement* xml)
@@ -163,5 +211,12 @@ void CAREditor::loadCustomParameters(XmlElement* xml)
     {
         double gain = xmlNode->getDoubleAttribute("gainLevel", m_gainSlider->getValue());
         m_gainSlider->setValue(gain, sendNotificationSync);
+
+        auto modeStr = xmlNode->getStringAttribute("mode", "MEAN");
+        if (modeStr == "MEDIAN") {
+            m_medianModeButton->triggerClick();
+        } else {
+            m_meanModeButton->triggerClick();
+        }
     }
 }

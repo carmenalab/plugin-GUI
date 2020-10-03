@@ -72,6 +72,9 @@ private:
     ChannelsType m_currentChannelsView;
 
     ScopedPointer<LinearButtonGroupManager> m_channelSelectorButtonManager;
+    ScopedPointer<LinearButtonGroupManager> m_modeSelectorButtonManager;
+    ScopedPointer<TextButton> m_meanModeButton;
+    ScopedPointer<TextButton> m_medianModeButton;
     ScopedPointer<ParameterSlider>          m_gainSlider;
 
     // LookAndFeel

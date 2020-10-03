@@ -80,6 +80,17 @@ public:
     void setReferenceChannelState (int channel, bool newState);
     void setAffectedChannelState  (int channel, bool newState);
 
+    enum class Mode {
+        MEAN,
+        MEDIAN
+    };
+    void setMode(Mode mode) {
+        m_mode = mode;
+    }
+    Mode getMode() const {
+        return m_mode;
+    }
+
     /** Saving/loading channel parameters */
     void saveCustomChannelParametersToXml(XmlElement* channelElement,
         int channelNumber, InfoObjectCommon::InfoObjectType channelType);
@@ -90,6 +101,9 @@ private:
     LinearSmoothedValueAtomic<float> m_gainLevel;
 
     AudioSampleBuffer m_avgBuffer;
+    std::vector<float> m_medianBuffer;
+
+    Mode m_mode;
 
     /** We should add this for safety to prevent any app crashes or invalid data processing.
         Since we use m_referenceChannels and m_affectedChannels arrays in the process() function,
@@ -108,6 +122,10 @@ private:
 
     // ==================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CAR);
+
+    void computeSubtractorForMean(const AudioSampleBuffer &buffer);
+
+    void computeSubtractorForMedian(const AudioSampleBuffer &buffer);
 };
 
 

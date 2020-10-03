@@ -25,6 +25,8 @@
 
 #include "CAR.h"
 #include "CAREditor.h"
+#include <algorithm>
+
 
 
 CAR::CAR()
@@ -33,6 +35,7 @@ CAR::CAR()
     setProcessorType (PROCESSOR_TYPE_FILTER);
 
     m_avgBuffer = AudioSampleBuffer (1, 10000); // 1-dimensional buffer to hold the avg
+    m_mode = Mode::MEAN;
 }
 
 
@@ -68,29 +71,23 @@ void CAR::process (AudioSampleBuffer& buffer)
     const int numAffectedChannels   = m_affectedChannels.size();
 
     // There are no sense to do any processing if either number of reference or affected channels is zero.
-    if (! numReferenceChannels
-        || ! numAffectedChannels)
+    if (! numReferenceChannels || ! numAffectedChannels)
     {
         return;
     }
 
-    m_avgBuffer.clear();
-
-    for (int i = 0; i < numReferenceChannels; ++i)
-    {
-        m_avgBuffer.addFrom (0,                         // destChannel
-                             0,                         // destStartSample
-                             buffer,                    // source
-                             m_referenceChannels[i],    // sourceChannel
-                             0,                         // sourceStartSample
-                             numSamples,                // numSamples
-                             1.0f);                     // gain to apply
+    switch (m_mode) {
+        case Mode::MEAN:
+        default:
+            computeSubtractorForMean(buffer);
+            break;
+        case Mode::MEDIAN:
+            computeSubtractorForMedian(buffer);
+            break;
     }
 
-    m_avgBuffer.applyGain (1.0f / float (numReferenceChannels));
-
     m_gainLevel.updateTarget();
-    const float gain = -1.0f * m_gainLevel.getNextValue() / 100.f;
+    const float gain =  -1.0f * m_gainLevel.getNextValue() / 100.f;
 
     for (int i = 0; i < numAffectedChannels; ++i)
     {
@@ -144,7 +141,7 @@ void CAR::saveCustomChannelParametersToXml(XmlElement* channelElement,
     if (channelType == InfoObjectCommon::DATA_CHANNEL)
     {
         XmlElement* groupState = channelElement->createNewChildElement("GROUPSTATE");
-        
+
         const Array<int>& referenceChannels = getReferenceChannels();
         bool isReferenceChannel = referenceChannels.contains(channelNumber);
         groupState->setAttribute("reference", isReferenceChannel);
@@ -176,5 +173,49 @@ void CAR::loadCustomChannelParametersFromXml(XmlElement* channelElement,
                 setAffectedChannelState(channelNumber, isAffectedChannel);
             }
         }
+    }
+}
+
+void CAR::computeSubtractorForMean(const AudioSampleBuffer &buffer) {
+    const int numSamples = buffer.getNumSamples();
+    const int numReferenceChannels  = m_referenceChannels.size();
+
+    m_avgBuffer.clear();
+
+    for (int i = 0; i < numReferenceChannels; ++i)
+    {
+        m_avgBuffer.addFrom (0,                         // destChannel
+                             0,                         // destStartSample
+                             buffer,                    // source
+                             m_referenceChannels[i],    // sourceChannel
+                             0,                         // sourceStartSample
+                             numSamples,                // numSamples
+                             1.0f);                     // gain to apply
+    }
+
+    m_avgBuffer.applyGain (1.0f / float (numReferenceChannels));
+}
+
+void CAR::computeSubtractorForMedian(const AudioSampleBuffer &buffer) {
+    const int numSamples = buffer.getNumSamples();
+    const int numReferenceChannels  = m_referenceChannels.size();
+
+    m_avgBuffer.clear();
+
+    m_medianBuffer.resize(numReferenceChannels);
+
+    for (int sampleIdx = 0; sampleIdx < numSamples; sampleIdx++) {
+        // For each sample index, copy in each channel's data to a temporary buffer;
+        // then sort that cross-channel data to get the median.
+        for (int chidx = 0; chidx < numReferenceChannels; chidx++) {
+            m_medianBuffer[chidx] = buffer.getSample(m_referenceChannels[chidx], sampleIdx);
+        }
+        std::sort(m_medianBuffer.begin(), m_medianBuffer.end());
+
+        float median = m_medianBuffer[(int) numReferenceChannels / 2];
+        if (numReferenceChannels % 2 == 0) {
+            median = (median + m_medianBuffer[((int) numReferenceChannels / 2) - 1]) / 2.0f;
+        }
+        m_avgBuffer.setSample(0, sampleIdx, median);
     }
 }
