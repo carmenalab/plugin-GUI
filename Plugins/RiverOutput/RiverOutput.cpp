@@ -124,6 +124,7 @@ void RiverOutput::parameterValueChanged(Value &valueThatWasChanged, const String
 bool RiverOutput::enable() {
     auto sn = streamName();
     if (sn.empty() || redis_connection_hostname_.empty() || redis_connection_port_ <= 0) {
+        CoreServices::sendStatusMessage("FAILED TO ENABLE");
         return false;
     }
 
@@ -141,6 +142,7 @@ bool RiverOutput::enable() {
     if (shouldConsumeSpikes()) {
         if (getTotalSpikeChannels() == 0) {
             // Can't consume spikes if there are no spike channels.
+            CoreServices::sendStatusMessage("FAILED TO ENABLE: NO SPIKES");
             return false;
         }
 
