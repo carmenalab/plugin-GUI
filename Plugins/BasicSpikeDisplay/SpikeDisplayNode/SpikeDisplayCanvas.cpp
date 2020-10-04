@@ -191,6 +191,12 @@ void SpikeDisplayCanvas::buttonClicked(Button* button)
     }
 }
 
+void SpikeDisplayCanvas::startRecording() {
+    // Ensure each recording session starts with a cleared display, otherwise pointers to stale spikes might exist
+    // in its buffers
+    spikeDisplay->clear();
+}
+
 void SpikeDisplayCanvas::saveVisualizerParameters(XmlElement* xml)
 {
 
