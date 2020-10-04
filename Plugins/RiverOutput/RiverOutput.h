@@ -110,7 +110,7 @@ public:
         writer_max_batch_size_ = maxBatchSize;
     }
 
-    int setMaxLatencyMs(int maxLatencyMs) {
+    void setMaxLatencyMs(int maxLatencyMs) {
         writer_max_latency_ms_ = maxLatencyMs;
     }
 
