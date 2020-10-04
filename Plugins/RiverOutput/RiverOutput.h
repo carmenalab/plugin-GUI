@@ -98,6 +98,22 @@ public:
     std::string streamName() const;
     int64_t totalSamplesWritten() const;
 
+    int maxBatchSize() const {
+        return writer_max_batch_size_;
+    }
+
+    int maxLatencyMs() const {
+        return writer_max_latency_ms_;
+    }
+
+    void setMaxBatchSize(int maxBatchSize) {
+        writer_max_batch_size_ = maxBatchSize;
+    }
+
+    int setMaxLatencyMs(int maxLatencyMs) {
+        writer_max_latency_ms_ = maxLatencyMs;
+    }
+
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RiverOutput)
 
@@ -124,6 +140,8 @@ private:
     int redis_connection_port_;
     std::string redis_connection_password_;
 
+    int writer_max_batch_size_;
+    int writer_max_latency_ms_;
 };
 
 

@@ -49,6 +49,10 @@ RiverOutput::RiverOutput()
     channel_mapping_json_ = new Parameter("channel_mapping_json", juce::String(""), 0, true);
     channel_mapping_json_->addListener(this);
     parameters.add(channel_mapping_json_);
+
+    // Give some defaults
+    writer_max_latency_ms_ = 5;
+    writer_max_batch_size_ = 4096;
 }
 
 
@@ -72,7 +76,12 @@ void RiverOutput::handleSpike(const SpikeChannel *spikeInfo, const MidiMessage &
     river_spike.channel_index = channel_index;
     river_spike.data_index = spike->getTimestamp();
     river_spike.unit_index = ((int) spike->getSortedID()) - 1;
-    writing_thread_->enqueue(reinterpret_cast<const char *>(&river_spike), 1);
+
+    if (writing_thread_) {
+        writing_thread_->enqueue(reinterpret_cast<const char *>(&river_spike), 1);
+    } else {
+        writer_->WriteBytes(reinterpret_cast<const char *>(&river_spike), 1);
+    }
 }
 
 void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& msg, int) {
@@ -88,7 +97,11 @@ void RiverOutput::handleEvent(const EventChannel* eventInfo, const MidiMessage& 
     jassert(((int) data_size == writer_->schema().sample_size()));
 
     // Assume that the binary data in the event matches the sample size exactly. If it doesn't, crashes will happen!
-    writing_thread_->enqueue(ptr, 1);
+    if (writing_thread_) {
+        writing_thread_->enqueue(ptr, 1);
+    } else {
+        writer_->WriteBytes(ptr, 1);
+    }
 }
 
 void RiverOutput::parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) {
@@ -160,9 +173,14 @@ bool RiverOutput::enable() {
         ((VisualizerEditor *) (editor.get()))->enable();
     }
 
-    // Capacity should be large so to not lose data
-    writing_thread_ = std::make_unique<RiverWriterThread>(writer_, 4096, 5);
-    writing_thread_->startThread();
+    // If latency or batch size are nonpositive, write everything synchronously.
+    if (maxLatencyMs() > 0 && maxBatchSize() > 0) {
+        writing_thread_ = std::make_unique<RiverWriterThread>(writer_, maxBatchSize(), maxLatencyMs());
+        writing_thread_->startThread();
+        std::cout << "Writing to River asynchronously with stream name " << sn << std::endl;
+    } else {
+        std::cout << "Writing to River synchronously with stream name " << sn << std::endl;
+    }
 
     return true;
 }
@@ -228,6 +246,8 @@ void RiverOutput::saveCustomParametersToXml(XmlElement *parentElement) {
     mainNode->setAttribute("hostname", redisConnectionHostname());
     mainNode->setAttribute("port", redisConnectionPort());
     mainNode->setAttribute("password", redisConnectionPassword());
+    mainNode->setAttribute("max_latency_ms", maxLatencyMs());
+    mainNode->setAttribute("max_batch_size", maxBatchSize());
 
     if (event_schema_) {
         std::string event_schema_json = event_schema_->ToJson();
@@ -248,6 +268,13 @@ void RiverOutput::loadCustomParametersFromXml() {
         redis_connection_hostname_ = mainNode->getStringAttribute("hostname", "127.0.0.1").toStdString();
         redis_connection_port_ = mainNode->getIntAttribute("port", 6379);
         redis_connection_password_ = mainNode->getStringAttribute("password", "").toStdString();
+
+        if (mainNode->hasAttribute("max_latency_ms")) {
+            writer_max_latency_ms_ = mainNode->getIntAttribute("max_latency_ms");
+        }
+        if (mainNode->hasAttribute("max_batch_size")) {
+            writer_max_batch_size_ = mainNode->getIntAttribute("max_batch_size");
+        }
         if (mainNode->hasAttribute("event_schema_json")) {
             String j = mainNode->getStringAttribute("event_schema_json");
             const river::StreamSchema& schema = river::StreamSchema::FromJson(j.toStdString());

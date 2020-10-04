@@ -136,9 +136,35 @@ RiverOutputEditor::RiverOutputEditor(
     xPos = LEFT_EDGE;
     yPos += 60;
 
+    asyncLatencyMsLabel = newStaticLabel("Max Latency (ms)", xPos, yPos, 140, C_TEXT_HT, optionsPanel);
+    asyncLatencyMsLabelValue = newInputLabel("asyncLatencyMsLabelValue",
+                                             "Maximum latency in milliseconds allowed between receiving a sample and writing it to River. "
+                                             "Set to 0 or negative to send synchronously.",
+                                             xPos,
+                                             yPos + LABEL_VALUE_GAP,
+                                             100,
+                                             C_TEXT_HT,
+                                             optionsPanel);
+    asyncLatencyMsLabelValue->addListener(this);
+
+    xPos += asyncLatencyMsLabel->getBounds().getWidth() + 4;
+    asyncBatchSizeLabel = newStaticLabel("Max Batch Size", xPos, yPos, 140, C_TEXT_HT, optionsPanel);
+    asyncBatchSizeLabelValue = newInputLabel("asyncBatchSizeLabelValue",
+                                             "Maximum number of samples to write in a batch to River. "
+                                             "Set to 0 or negative to send synchronously.",
+                                             xPos,
+                                             yPos + LABEL_VALUE_GAP,
+                                             100,
+                                             C_TEXT_HT,
+                                             optionsPanel);
+    asyncBatchSizeLabelValue->addListener(this);
+
+    xPos = LEFT_EDGE;
+    yPos += 60;
     schemaList = new SchemaListBox();
     schemaList->setBounds(xPos, yPos, 300, 400);
     optionsPanel->addAndMakeVisible(schemaList);
+
 
     // Move to right half, even with the title
     xPos = LEFT_EDGE + 400;
@@ -151,7 +177,7 @@ RiverOutputEditor::RiverOutputEditor(
                                           18,
                                           optionsPanel);
 
-    // Move to right half, even with the title
+    // Move to right half, in line with the title
     yPos += 60;
     totalSamplesWrittenLabel = newStaticLabel("Samples Written", xPos, yPos, 150, 20, optionsPanel);
     totalSamplesWrittenLabelValue = newStaticLabel("0",
@@ -160,6 +186,7 @@ RiverOutputEditor::RiverOutputEditor(
                                                    120,
                                                    18,
                                                    optionsPanel);
+
 
     // Update the bounds of the options panel to fit all of the components in it:
     juce::Rectangle<int> opBounds(0, 0, 1, 1);
@@ -180,6 +207,10 @@ RiverOutputEditor::RiverOutputEditor(
             dynamic_cast<Component *>(streamNameLabelValue.get()),
             dynamic_cast<Component *>(totalSamplesWrittenLabel.get()),
             dynamic_cast<Component *>(totalSamplesWrittenLabelValue.get()),
+            dynamic_cast<Component *>(asyncBatchSizeLabel.get()),
+            dynamic_cast<Component *>(asyncBatchSizeLabelValue.get()),
+            dynamic_cast<Component *>(asyncLatencyMsLabel.get()),
+            dynamic_cast<Component *>(asyncLatencyMsLabelValue.get()),
     }) {
         opBounds = opBounds.getUnion(component->getBounds());
     }
@@ -272,6 +303,10 @@ void RiverOutputEditor::labelTextChanged(Label *label) {
         river->setRedisConnectionPassword(label->getText().toStdString());
     } else if (label == fieldNameLabelValue) {
         // Nothing to do.
+    } else if (label == asyncLatencyMsLabelValue) {
+        river->setMaxLatencyMs(label->getText().getIntValue());
+    } else if (label == asyncBatchSizeLabelValue) {
+        river->setMaxBatchSize(label->getText().getIntValue());
     }
 }
 
@@ -285,6 +320,9 @@ void RiverOutputEditor::refreshLabelsFromProcessor() {
     streamNameLabelValue->setText(river->streamName(), dontSendNotification);
 
     totalSamplesWrittenLabelValue->setText(juce::String(river->totalSamplesWritten()), dontSendNotification);
+
+    asyncLatencyMsLabelValue->setText(juce::String(river->maxLatencyMs()), dontSendNotification);
+    asyncBatchSizeLabelValue->setText(juce::String(river->maxBatchSize()), dontSendNotification);
 }
 
 void RiverOutputEditor::refreshSchemaFromProcessor() {

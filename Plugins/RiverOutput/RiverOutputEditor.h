@@ -108,6 +108,14 @@ private:
 
     ScopedPointer<SchemaListBox> schemaList;
 
+    // OPTIONS PANEL: Async
+    ScopedPointer<Label> asyncBatchSizeLabel;
+    ScopedPointer<Label> asyncBatchSizeLabelValue;
+
+    ScopedPointer<Label> asyncLatencyMsLabel;
+    ScopedPointer<Label> asyncLatencyMsLabelValue;
+
+
     Label *newStaticLabel(
             const std::string& labelText,
             int boundsX,
