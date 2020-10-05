@@ -276,7 +276,8 @@ void RiverOutput::loadCustomParametersFromXml() {
             writer_max_batch_size_ = mainNode->getIntAttribute("max_batch_size");
         }
         if (mainNode->hasAttribute("event_schema_json")) {
-            auto j = mainNode->getStringAttribute("event_schema_json").toStdString();
+            String s = mainNode->getStringAttribute("event_schema_json");
+            std::string j = s.toStdString();
             try {
                 const river::StreamSchema& schema = river::StreamSchema::FromJson(j);
                 setEventSchema(schema);
