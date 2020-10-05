@@ -277,8 +277,13 @@ void RiverOutput::loadCustomParametersFromXml() {
         }
         if (mainNode->hasAttribute("event_schema_json")) {
             String j = mainNode->getStringAttribute("event_schema_json");
-            const river::StreamSchema& schema = river::StreamSchema::FromJson(j.toStdString());
-            setEventSchema(schema);
+            try {
+                const river::StreamSchema& schema = river::StreamSchema::FromJson(j.toStdString());
+                setEventSchema(schema);
+            } catch (const json::exception& e) {
+                std::cout << "Invalid schema json: " << j.toStdString() << " | " << e.what() << std::endl;
+                clearEventSchema();
+            }
         } else {
             clearEventSchema();
         }
