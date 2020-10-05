@@ -276,12 +276,12 @@ void RiverOutput::loadCustomParametersFromXml() {
             writer_max_batch_size_ = mainNode->getIntAttribute("max_batch_size");
         }
         if (mainNode->hasAttribute("event_schema_json")) {
-            String j = mainNode->getStringAttribute("event_schema_json");
+            auto j = mainNode->getStringAttribute("event_schema_json").toStdString();
             try {
-                const river::StreamSchema& schema = river::StreamSchema::FromJson(j.toStdString());
+                const river::StreamSchema& schema = river::StreamSchema::FromJson(j);
                 setEventSchema(schema);
             } catch (const json::exception& e) {
-                std::cout << "Invalid schema json: " << j.toStdString() << " | " << e.what() << std::endl;
+                std::cout << "Invalid schema json: " << j << " | " << e.what() << std::endl;
                 clearEventSchema();
             }
         } else {
