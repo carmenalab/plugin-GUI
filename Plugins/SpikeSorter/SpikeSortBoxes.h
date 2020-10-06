@@ -439,7 +439,11 @@ public:
     // Parameter::Listener
     void parameterValueChanged(Value &valueThatWasChanged, const String &parameterName) override;
 
+    // Populate the SorterSpikePtr's pcProj array if there are possible PC units.
     void projectOnPrincipalComponents(SorterSpikePtr so);
+
+    // Try to sort the spike, populating the SorterSpikePtr's sortedID and color to the appropriate unit
+    // if sorted.
 	bool sortSpike(SorterSpikePtr so, bool PCAfirst);
     void RePCA();
 
@@ -486,11 +490,14 @@ private:
     std::vector<BoxUnit> boxUnits;
 
     PCASorting pca_sorting_;
+    // Updated by the PCAcomputingThread; the process thread will deal with replacing the
+    // "active" pca sorting instance.
+    PCASorting replacement_pca_sorting_;
 
     SorterSpikeArray spikeBuffer;
     int bufferSize,spikeBufferIndex;
     PCAcomputingThread* computingThread;
-    bool bPCAJobSubmitted,bPCAcomputed,bRePCA, bShouldPCA;
+    bool bPCAJobSubmitted,bRePCA, bShouldPCA;
     std::atomic<bool> bPCAjobFinished ;
 
     Parameter *pca_parameter_;

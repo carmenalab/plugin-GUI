@@ -606,7 +606,6 @@ SpikeSortBoxes::SpikeSortBoxes(UniqueIDgenerator *uniqueIDgenerator_,
     computingThread = pth;
     bufferSize = 200;
     spikeBufferIndex = -1;
-    bPCAcomputed = false;
     bPCAJobSubmitted = false;
     bPCAjobFinished = false;
     selectedUnit = -1;
@@ -657,12 +656,12 @@ void SpikeSortBoxes::resizeWaveform(int numSamples)
 
     waveformLength = numSamples;
     pca_sorting_.results.clear();
+    pca_sorting_.units.clear();
     spikeBuffer.clear();
     for (int n = 0; n < bufferSize; n++)
     {
         spikeBuffer.add(nullptr);
     }
-    bPCAcomputed = false;
     spikeBufferIndex = -1;
 	bPCAJobSubmitted = false;
 	bPCAjobFinished = false;
@@ -670,9 +669,6 @@ void SpikeSortBoxes::resizeWaveform(int numSamples)
 	selectedBox = -1;
 	bRePCA = false;
 
-	for (auto &pcaUnit : pca_sorting_.units) {
-	    pcaUnit.resizeWaveform(waveformLength);
-	}
     for (int k=0; k<boxUnits.size(); k++)
     {
         boxUnits[k].resizeWaveform(waveformLength);
@@ -707,7 +703,6 @@ void SpikeSortBoxes::loadCustomParametersFromXml(XmlElement* electrodeNode)
                     numChannels = UnitNode->getIntAttribute("numChannels");
                     waveformLength = UnitNode->getIntAttribute("waveformLength");
                     bPCAjobFinished = UnitNode->getBoolAttribute("PCAjobFinished");
-                    bPCAcomputed = UnitNode->getBoolAttribute("PCAcomputed");
 
                     int num_pcs = UnitNode->getIntAttribute("numPCs", 2);
                     bool is_old_style_pcs = false;
@@ -858,7 +853,6 @@ void SpikeSortBoxes::saveCustomParametersToXml(XmlElement* electrodeNode)
     pcaNode->setAttribute("numChannels",numChannels);
     pcaNode->setAttribute("waveformLength",waveformLength);
     pcaNode->setAttribute("PCAjobFinished", bPCAjobFinished);
-    pcaNode->setAttribute("PCAcomputed", bPCAcomputed);
     pcaNode->setAttribute("numPCs", results.num_pcs());
 
     if (results.is_populated()) {
@@ -954,11 +948,12 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
     if (bPCAjobFinished)
     {
         // PCA results have been updated by the PCA job, so ensure the parameter is updated too:
+        pca_sorting_.results = replacement_pca_sorting_.results;
         synchronizePCAParameter();
-        bPCAcomputed = true;
+        bPCAjobFinished = false;
     }
 
-    if (bPCAcomputed)
+    if (!pca_sorting_.units.empty())
     {
         so->pcProj.clear();
         int num_pcs = pca_sorting_.results.num_pcs();
@@ -971,6 +966,7 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
                 so->pcProj[pc_idx] += pca_sorting_.results.pcs()[pc_idx][k] * (v - mean[k]);
             }
         }
+        return;
     }
     else
     {
@@ -980,16 +976,15 @@ void SpikeSortBoxes::projectOnPrincipalComponents(SorterSpikePtr so)
         bool spikeBufferFull = spikeBufferIndex == bufferSize - 1;
         bool hasAnySpikes = spikeBufferIndex > 0;
         bool shouldTriggerJob = bShouldPCA && (spikeBufferFull || (bRePCA && hasAnySpikes));
-        if (shouldTriggerJob && !bPCAcomputed && !bPCAJobSubmitted) {
+        if (shouldTriggerJob && !bPCAJobSubmitted) {
             bPCAJobSubmitted = true;
-            bPCAcomputed = false;
             bRePCA = false;
-            // submit a new job to compute the spike buffer.
-            PCAJobPtr job = new PCAjob(spikeBuffer, &pca_sorting_.results, bPCAjobFinished);
+            // submit a new job to compute the spike buffer. It will put its results into the replacement
+            // variable.
+            PCAJobPtr job = new PCAjob(spikeBuffer, &replacement_pca_sorting_.results, bPCAjobFinished);
             computingThread->addPCAjob(job);
         }
     }
-
 }
 
 void SpikeSortBoxes::getPCArange(int pc_idx, float& min,float& max)
@@ -1033,7 +1028,6 @@ bool SpikeSortBoxes::isPCAfinished()
 }
 void SpikeSortBoxes::RePCA()
 {
-    bPCAcomputed = false;
     bPCAJobSubmitted = false;
     bRePCA = true;
 }
@@ -1290,7 +1284,7 @@ bool SpikeSortBoxes::sortSpike(SorterSpikePtr so, bool PCAfirst)
     std::vector<PCAUnit> &pcaUnits = pca_sorting_.units;
     if (PCAfirst)
     {
-        for (int k=0; k < pcaUnits.size(); k++)
+        for (int k = 0; k < pcaUnits.size(); k++)
         {
             if (pcaUnits[k].isWaveFormInsidePolygon(so))
             {
@@ -1301,7 +1295,7 @@ bool SpikeSortBoxes::sortSpike(SorterSpikePtr so, bool PCAfirst)
                 return true;
             }
         }
-
+        
         for (int k=0; k<boxUnits.size(); k++)
         {
             if (boxUnits[k].isWaveFormInsideAllBoxes(so))
@@ -1330,7 +1324,7 @@ bool SpikeSortBoxes::sortSpike(SorterSpikePtr so, bool PCAfirst)
                 return true;
             }
         }
-        for (int k=0; k<pcaUnits.size(); k++)
+        for (int k = 0; k < pcaUnits.size(); k++)
         {
             if (pcaUnits[k].isWaveFormInsidePolygon(so))
             {
@@ -1342,7 +1336,6 @@ bool SpikeSortBoxes::sortSpike(SorterSpikePtr so, bool PCAfirst)
                 return true;
             }
         }
-
     }
 
     return false;

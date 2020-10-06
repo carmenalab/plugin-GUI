@@ -1039,11 +1039,9 @@ void SpikeSorter::process(AudioSampleBuffer& buffer)
             SorterSpikePtr sorterSpike = new SorterSpikeContainer(kSpikeChan, spikeData, timestamp);
 
             electrode->spikeSort->projectOnPrincipalComponents(sorterSpike);
-
-            // Add spike to drawing buffer....
             electrode->spikeSort->sortSpike(sorterSpike, PCAbeforeBoxes);
 
-            // transfer buffered spikes to spike plot
+            // Add spike to drawing buffer....
             if (electrode->spikePlot != nullptr) {
                 if (electrode->spikeSort->isPCAfinished()) {
                     electrode->spikeSort->resetJobStatus();
