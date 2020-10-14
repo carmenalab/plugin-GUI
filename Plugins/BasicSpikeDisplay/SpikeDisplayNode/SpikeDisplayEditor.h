@@ -50,8 +50,8 @@ public:
 
     void buttonEvent(Button* button);
 
-    void startRecording();
-    void stopRecording();
+    void startAcquisition() override;
+    void stopAcquisition() override;
 
     // void updateSettings();
     // void updateVisualizer();

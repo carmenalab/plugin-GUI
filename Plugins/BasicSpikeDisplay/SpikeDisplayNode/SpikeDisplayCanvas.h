@@ -95,9 +95,9 @@ public:
 
     void buttonClicked(Button* button);
 
-    void startRecording();
+    void startAcquisition();
 
-    void stopRecording() { } // unused
+    void stopAcquisition() { } // unused
 
     SpikeDisplayNode* processor;
 
