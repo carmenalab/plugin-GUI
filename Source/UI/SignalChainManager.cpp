@@ -473,13 +473,22 @@ void SignalChainManager::updateVisibleEditors(GenericEditor* activeEditor,
 
                 editorArray[n]->setEnabledState(enable);
 
-                if (source->canSendSignalTo(dest) && source->isEnabledState())
+                if (source->canSendSignalTo(dest) && source->isEnabledState()) {
                     enable = true;
-                else
-                    enable = false;
+                }
+                else {
+                    enable = false; 
+                }
 
                 if (source->isSplitter())
                 {
+                    // Ensure both destinations of the splitter get the right enable bit,
+                    // even if there should only be one editor active.
+                    for (const auto connected : editorArray[n]->getConnectedEditors()) {
+                        if (connected) {
+                            connected->setEnabledState(enable);
+                        }
+                    }
                     if (source->getDestNode() != dest)
                     {
                         //source->switchIO();
