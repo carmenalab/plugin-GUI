@@ -24,7 +24,7 @@
 #include "SignalChainManager.h"
 
 #include "EditorViewport.h"
-
+#include <stack>
 #include <iostream>
 
 SignalChainManager::SignalChainManager
@@ -448,7 +448,6 @@ void SignalChainManager::updateVisibleEditors(GenericEditor* activeEditor,
     if (true)
     {
         //action != ACTIVATE) {
-        bool enable = true;
 
         if (editorArray.size() == 1)
         {
@@ -462,47 +461,67 @@ void SignalChainManager::updateVisibleEditors(GenericEditor* activeEditor,
         }
         else
         {
+            // This editorArray only contains editors in the "active" path as defined by Splitters.
+            // We want to traverse all possible editors and propagate this bit down.
+            std::stack<std::pair<GenericEditor*, bool>> editorStack;
+            
+            // The first editor must be a source, else it + the whole chain will be disabled.
+            editorStack.push(std::make_pair(editorArray[0], editorArray[0]->getProcessor()->isSource()));
 
+            while (editorStack.size() > 0) {
+                auto editorAndShouldEnable = editorStack.top();
+                GenericEditor* editor = editorAndShouldEnable.first;
+                bool shouldEnable = editorAndShouldEnable.second;
+                editorStack.pop();
+
+                auto sourceNode = editor->getProcessor();
+                std::cout << "Setting enabled state of " << sourceNode->getName() << " to " << shouldEnable << std::endl;
+                editor->setEnabledState(shouldEnable);
+
+
+                bool newShouldEnable;
+                if (!shouldEnable) {
+                    newShouldEnable = false;
+                }
+                else {
+                    auto destNode = sourceNode->getDestNode();
+                    if (destNode && !sourceNode->canSendSignalTo(destNode)) {
+                        newShouldEnable = false;
+                    }
+                    else {
+                        newShouldEnable = true;
+                    }
+                }
+
+                Array<GenericEditor*> children;
+                if (sourceNode->isSplitter() || sourceNode->isMerger()) {
+                    children = editor->getConnectedEditors();
+                }
+                else {
+                    children.add(editor->getDestEditor());
+                }
+                for (GenericEditor* child : children) {
+                    if (child) {
+                        std::cout << "Pushing " << child->getProcessor()->getName() << std::endl;
+                        editorStack.push(std::make_pair(child, newShouldEnable));
+                    }
+                    
+                }
+            }
+                
+            // And then ensure the processor and editor are consistent with one another
             for (int n = 0; n < editorArray.size()-1; n++)
             {
                 GenericProcessor* source = (GenericProcessor*) editorArray[n]->getProcessor();
                 GenericProcessor* dest = (GenericProcessor*) editorArray[n+1]->getProcessor();
 
-                if (n == 0 && !source->isSource())
-                    enable = false;
-
-                editorArray[n]->setEnabledState(enable);
-
-                if (source->canSendSignalTo(dest) && source->isEnabledState()) {
-                    enable = true;
-                }
-                else {
-                    enable = false; 
-                }
-
                 if (source->isSplitter())
                 {
-                    // Ensure both destinations of the splitter get the right enable bit,
-                    // even if there should only be one editor active.
-                    for (const auto connected : editorArray[n]->getConnectedEditors()) {
-                        if (connected) {
-                            connected->setEnabledState(enable);
-                        }
-                    }
                     if (source->getDestNode() != dest)
                     {
-                        //source->switchIO();
                         editorArray[n]->switchDest();
                     }
                 }
-
-                //   if (enable)
-                //      std::cout << "Enabling node." << std::endl;
-                //   else
-                //     std::cout << "Not enabling node." << std::endl;
-
-                editorArray[n+1]->setEnabledState(enable);
-
             }
         }
     }
