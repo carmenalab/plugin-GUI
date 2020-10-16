@@ -478,7 +478,6 @@ void SignalChainManager::updateVisibleEditors(GenericEditor* activeEditor,
                 std::cout << "Setting enabled state of " << sourceNode->getName() << " to " << shouldEnable << std::endl;
                 editor->setEnabledState(shouldEnable);
 
-
                 bool newShouldEnable;
                 if (!shouldEnable) {
                     newShouldEnable = false;
@@ -502,7 +501,6 @@ void SignalChainManager::updateVisibleEditors(GenericEditor* activeEditor,
                 }
                 for (GenericEditor* child : children) {
                     if (child) {
-                        std::cout << "Pushing " << child->getProcessor()->getName() << std::endl;
                         editorStack.push(std::make_pair(child, newShouldEnable));
                     }
                     
