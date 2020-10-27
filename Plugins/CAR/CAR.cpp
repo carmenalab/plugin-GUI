@@ -206,16 +206,38 @@ void CAR::computeSubtractorForMedian(const AudioSampleBuffer &buffer) {
 
     for (int sampleIdx = 0; sampleIdx < numSamples; sampleIdx++) {
         // For each sample index, copy in each channel's data to a temporary buffer;
-        // then sort that cross-channel data to get the median.
+        // then use nth_element from STD to get the median.
         for (int chidx = 0; chidx < numReferenceChannels; chidx++) {
             m_medianBuffer[chidx] = buffer.getSample(m_referenceChannels[chidx], sampleIdx);
         }
-        std::sort(m_medianBuffer.begin(), m_medianBuffer.end());
 
-        float median = m_medianBuffer[(int) numReferenceChannels / 2];
+        float median;
         if (numReferenceChannels % 2 == 0) {
-            median = (median + m_medianBuffer[((int) numReferenceChannels / 2) - 1]) / 2.0f;
+            const auto median_it1 = m_medianBuffer.begin() + numReferenceChannels / 2 - 1;
+
+            std::nth_element(
+                    m_medianBuffer.begin(),
+                    median_it1,
+                    m_medianBuffer.end());
+            // Ensure to copy the value before the second nth_element messes with the array
+            float val1 = *median_it1;
+
+            const auto median_it2 = median_it1 + 1;
+            std::nth_element(
+                    m_medianBuffer.begin(),
+                    median_it2,
+                    m_medianBuffer.end());
+            float val2 = *median_it2;
+            median = (val1  + val2) / 2.0f;
+        } else {
+            const auto median_it1 = m_medianBuffer.begin() + numReferenceChannels / 2;
+            std::nth_element(
+                    m_medianBuffer.begin(),
+                    median_it1,
+                    m_medianBuffer.end());
+            median = *median_it1;
         }
+
         m_avgBuffer.setSample(0, sampleIdx, median);
     }
 }

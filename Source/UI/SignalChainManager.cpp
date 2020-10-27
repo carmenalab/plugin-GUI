@@ -459,12 +459,12 @@ void SignalChainManager::updateVisibleEditors(GenericEditor* activeEditor,
                 editorArray[0]->setEnabledState(false);
 
         }
-        else
+        else if (editorArray.size() > 0)
         {
             // This editorArray only contains editors in the "active" path as defined by Splitters.
             // We want to traverse all possible editors and propagate this bit down.
             std::stack<std::pair<GenericEditor*, bool>> editorStack;
-            
+
             // The first editor must be a source, else it + the whole chain will be disabled.
             editorStack.push(std::make_pair(editorArray[0], editorArray[0]->getProcessor()->isSource()));
 
