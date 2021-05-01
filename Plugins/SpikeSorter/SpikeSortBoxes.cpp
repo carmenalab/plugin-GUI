@@ -2603,7 +2603,7 @@ bool cEllipseGeneralForm::isPointInside(PointD p) const {
         p = PointD(dims_copy);
     }
 
-    // (pt)^T A (pt) + b^T (pt) + c < 0?
+    // (pt)^T A (pt) + b^T (pt) + c > 0?
 
     // A * (pt)
     std::vector<double> temp(n_dims);
@@ -2622,7 +2622,7 @@ bool cEllipseGeneralForm::isPointInside(PointD p) const {
     }
     ret += c_;
 
-    return ret < 0;
+    return ret > 0;
 }
 
 json cEllipseGeneralForm::ToJson() const {
