@@ -1838,6 +1838,8 @@ bool PCAUnit::FromJson(const json &value) {
             poly = std::make_shared<cPolygon>();
         } else if (value["shape"]["type"] == "ELLIPSE") {
             poly = std::make_shared<cEllipse>();
+        } else if (value["shape"]["type"] == "ELLIPSE_GENERAL") {
+            poly = std::make_shared<cEllipseGeneralForm>();
         } else {
             std::cout << "Unhandled shape type?? " << value["shape"]["type"] << std::endl;
             return false;
@@ -2577,6 +2579,99 @@ bool cEllipse::FromJson(const json &value) {
     }
     n_dims = rotation_.size();
     populate_sample_pts();
+    return true;
+}
+
+cEllipseGeneralForm::cEllipseGeneralForm(
+        std::vector<std::vector<float>> A,
+        std::vector<float> b,
+        const float c) :
+        A_(std::move(A)), b_(std::move(b)), c_(c) {
+    jassert(!A_.empty());
+    // Rotation is NxN, radii is an Nx1 vector, and Center is an N-dim point.
+    jassert(A_.size() == b_.size());
+
+    n_dims = A_.size();
+    center_ = PointD(0.0, 0.0);
+}
+
+bool cEllipseGeneralForm::isPointInside(PointD p) const {
+    if (p.dims().size() < n_dims) {
+        // "Project" the point into the proper number of dimensions
+        auto dims_copy = p.dims();
+        dims_copy.resize(n_dims, 0.0);
+        p = PointD(dims_copy);
+    }
+
+    // (pt)^T A (pt) + b^T (pt) + c < 0?
+
+    // A * (pt)
+    std::vector<double> temp(n_dims);
+    for (int i = 0; i < n_dims; i++) {
+        temp[i] = 0.0;
+        for (int j = 0; j < n_dims; j++) {
+            temp[i] += A_[i][j] * p[j];
+        }
+    }
+
+    double ret = 0;
+    // pt.T * (temp) + b^T (pt)
+    for (int i = 0; i < n_dims; i++) {
+        ret += temp[i] * p[i];
+        ret += b_[i] * p[i];
+    }
+    ret += c_;
+
+    return ret < 0;
+}
+
+json cEllipseGeneralForm::ToJson() const {
+    json ret;
+    ret["type"] = "ELLIPSE_GENERAL";
+
+    json A_json;
+    for (const auto& A_row : A_) {
+        A_json.push_back(A_row);
+    }
+    ret["A"] = A_json;
+    ret["b"] = b_;
+    ret["c"] = c_;
+    return ret;
+}
+
+bool cEllipseGeneralForm::FromJson(const json &value) {
+    if (!value.contains("type") ||
+        value["type"].get<std::string>() != "ELLIPSE_GENERAL" ||
+        !value.contains("A") ||
+        !value.contains("b") ||
+        !value.contains("c")) {
+        return false;
+    }
+
+    A_.clear();
+    try {
+        for (const auto& A_row_json : value["A"]) {
+            A_.push_back(A_row_json.get<std::vector<float>>());
+        }
+    } catch (json::exception &) {
+        return false;
+    }
+
+    try {
+        b_ = value["b"].get<std::vector<float>>();
+        c_ = value["c"].get<float>();
+    } catch (json::exception &) {
+        return false;
+    }
+
+    if (A_.empty() || b_.empty()) {
+        return false;
+    }
+
+    if (A_.size() != b_.size() || (A_.size() != A_[0].size())) {
+        return false;
+    }
+    n_dims = A_.size();
     return true;
 }
 

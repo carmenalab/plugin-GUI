@@ -371,6 +371,45 @@ private:
     void populate_sample_pts();
 };
 
+class cEllipseGeneralForm : public cShape
+{
+public:
+    explicit cEllipseGeneralForm() : c_(0) {
+        n_dims = 0;
+        center_ = PointD(0.0, 0.0);
+    };
+
+    cEllipseGeneralForm(
+            std::vector<std::vector<float>> A,
+            std::vector<float> b,
+            float c);
+
+    bool isPointInside(PointD p) const override;
+    json ToJson() const override;
+    bool FromJson(const json& value) override;
+
+    std::vector<PointD>& pts() override {
+        return sample_pts_;
+    }
+
+    PointD& offset() override {
+        return center_;
+    };
+
+    bool CanSerializeToXml() const override {
+        // Can be done, just not needed at the moment (always loaded via the API for now)
+        return false;
+    }
+private:
+    int n_dims;
+    std::vector<std::vector<float>> A_;
+    std::vector<float> b_;
+    float c_;
+    std::vector<PointD> sample_pts_;
+    PointD center_;
+};
+
+
 
 
 class PCAcomputingThread : juce::Thread

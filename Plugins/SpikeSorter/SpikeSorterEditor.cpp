@@ -166,7 +166,6 @@ SpikeSorterEditor::SpikeSorterEditor(GenericProcessor* parentNode, bool useDefau
     }
     dacCombo->setSelectedId(1);
     addAndMakeVisible(dacCombo);*/
-
 }
 
 Visualizer* SpikeSorterEditor::createNewCanvas()
