@@ -32,6 +32,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <utility>
 #include <sstream>
 #include <nlohmann/json.hpp>
+#include <Eigen/Dense>
 #include <unordered_set>
 
 using json = nlohmann::json;
@@ -303,7 +304,7 @@ class cShape
 {
 public:
     virtual ~cShape() = default;
-    virtual bool isPointInside(PointD p) const = 0;
+    virtual bool isPointInside(PointD p) = 0;
     virtual std::vector<PointD>& pts() = 0;
     virtual PointD& offset() = 0;
     virtual bool CanSerializeToXml() const = 0;
@@ -315,7 +316,7 @@ public:
 class cPolygon : public cShape
 {
 public:
-    bool isPointInside(PointD p) const override;
+    bool isPointInside(PointD p) override;
     json ToJson() const override;
     bool FromJson(const json& value) override;
 
@@ -345,7 +346,7 @@ public:
              std::vector<std::vector<float>>  rotation,
              const std::vector<float>& radii);
 
-    bool isPointInside(PointD p) const override;
+    bool isPointInside(PointD p) override;
     json ToJson() const override;
     bool FromJson(const json& value) override;
 
@@ -384,7 +385,7 @@ public:
             std::vector<float> b,
             float c);
 
-    bool isPointInside(PointD p) const override;
+    bool isPointInside(PointD p) override;
     json ToJson() const override;
     bool FromJson(const json& value) override;
 
@@ -402,9 +403,10 @@ public:
     }
 private:
     int n_dims;
-    std::vector<std::vector<float>> A_;
-    std::vector<float> b_;
+    Eigen::MatrixXf A_;
+    Eigen::VectorXf b_;
     float c_;
+    Eigen::VectorXf pt_;
     std::vector<PointD> sample_pts_;
     PointD center_;
 };

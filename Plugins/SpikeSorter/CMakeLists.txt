@@ -38,7 +38,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
-#optional: create IDE groups
+find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+
+
+ #optional: create IDE groups
 #plugin_create_filters()
 
-target_link_libraries(${PLUGIN_NAME} tcrosser nlohmann_json::nlohmann_json)
+target_link_libraries(${PLUGIN_NAME} tcrosser nlohmann_json::nlohmann_json Eigen3::Eigen)

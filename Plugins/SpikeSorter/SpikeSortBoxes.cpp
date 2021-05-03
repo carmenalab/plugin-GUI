@@ -1697,7 +1697,7 @@ int SpikeSortBoxes::getNumBoxes(int unitID)
 /**************************/
 
 
-bool cPolygon::isPointInside(PointD p) const
+bool cPolygon::isPointInside(PointD p)
 {
     PointD p1, p2;
 
@@ -2514,7 +2514,7 @@ void cEllipse::populate_sample_pts() {
     }
 }
 
-bool cEllipse::isPointInside(PointD p) const {
+bool cEllipse::isPointInside(PointD p) {
     if (p.dims().size() < n_dims) {
         // "Project" the point into the proper number of dimensionsk
         auto dims_copy = p.dims();
@@ -2586,16 +2586,29 @@ cEllipseGeneralForm::cEllipseGeneralForm(
         std::vector<std::vector<float>> A,
         std::vector<float> b,
         const float c) :
-        A_(std::move(A)), b_(std::move(b)), c_(c) {
-    jassert(!A_.empty());
+        c_(c) {
+    jassert(!A.empty());
     // Rotation is NxN, radii is an Nx1 vector, and Center is an N-dim point.
-    jassert(A_.size() == b_.size());
+    jassert(A.size() == b.size());
 
     n_dims = A_.size();
+
+    A_ = Eigen::MatrixXf(n_dims, n_dims);
+    for (int i = 0; i < n_dims; i++) {
+        for (int j = 0; j < n_dims; j++) {
+            A_(i, j) = A[i][j];
+        }
+    }
+    b_ = Eigen::VectorXf(n_dims);
+    for (int i = 0; i < n_dims; i++) {
+        b_(i) = b[i];
+    }
+
     center_ = PointD(0.0, 0.0);
+    pt_ = Eigen::VectorXf(n_dims);
 }
 
-bool cEllipseGeneralForm::isPointInside(PointD p) const {
+bool cEllipseGeneralForm::isPointInside(PointD p) {
     if (p.dims().size() < n_dims) {
         // "Project" the point into the proper number of dimensions
         auto dims_copy = p.dims();
@@ -2603,25 +2616,12 @@ bool cEllipseGeneralForm::isPointInside(PointD p) const {
         p = PointD(dims_copy);
     }
 
+    for (int i = 0; i < n_dims; i++) {
+        pt_(i) = p[i];
+    }
+
     // (pt)^T A (pt) + b^T (pt) + c > 0?
-
-    // A * (pt)
-    std::vector<double> temp(n_dims);
-    for (int i = 0; i < n_dims; i++) {
-        temp[i] = 0.0;
-        for (int j = 0; j < n_dims; j++) {
-            temp[i] += A_[i][j] * p[j];
-        }
-    }
-
-    double ret = 0;
-    // pt.T * (temp) + b^T (pt)
-    for (int i = 0; i < n_dims; i++) {
-        ret += temp[i] * p[i];
-        ret += b_[i] * p[i];
-    }
-    ret += c_;
-
+    float ret = (pt_.transpose() * A_).dot(pt_) + (b_.dot(pt_)) + c_;
     return ret > 0;
 }
 
@@ -2630,11 +2630,19 @@ json cEllipseGeneralForm::ToJson() const {
     ret["type"] = "ELLIPSE_GENERAL";
 
     json A_json;
-    for (const auto& A_row : A_) {
+    std::vector<float> b_row;
+
+    for (int i = 0; i < n_dims; i++) {
+        std::vector<float> A_row;
+        for (int j = 0; j < n_dims; j++) {
+            A_row.push_back(A_(i, j));
+        }
         A_json.push_back(A_row);
+
+        b_row.push_back(b_(i));
     }
     ret["A"] = A_json;
-    ret["b"] = b_;
+    ret["b"] = b_row;
     ret["c"] = c_;
     return ret;
 }
@@ -2648,30 +2656,46 @@ bool cEllipseGeneralForm::FromJson(const json &value) {
         return false;
     }
 
-    A_.clear();
+    n_dims = A_.size();
+    if (n_dims == 0) {
+        return false;
+    }
+
+    A_ = Eigen::MatrixXf(n_dims, n_dims);
     try {
-        for (const auto& A_row_json : value["A"]) {
-            A_.push_back(A_row_json.get<std::vector<float>>());
+        for (int i = 0; i < n_dims; i++) {
+            std::vector<float> row = value["A"][i].get<std::vector<float>>();
+            // Make sure it's square
+            if (row.size() != n_dims) {
+                return false;
+            }
+            for (int j = 0; j < n_dims; j++) {
+                A_(i, j) = row[j];
+            }
+        }
+    } catch (json::exception &) {
+        return false;
+    }
+
+    b_ = Eigen::VectorXf(n_dims);
+    try {
+        std::vector<float> b = value["b"].get<std::vector<float>>();
+        if (b.size() != n_dims) {
+            return false;
+        }
+        for (int i = 0; i < n_dims; i++) {
+            b_(i) = b[i];
         }
     } catch (json::exception &) {
         return false;
     }
 
     try {
-        b_ = value["b"].get<std::vector<float>>();
         c_ = value["c"].get<float>();
     } catch (json::exception &) {
         return false;
     }
 
-    if (A_.empty() || b_.empty()) {
-        return false;
-    }
-
-    if (A_.size() != b_.size() || (A_.size() != A_[0].size())) {
-        return false;
-    }
-    n_dims = A_.size();
     return true;
 }
 
